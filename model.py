@@ -149,48 +149,88 @@ class PromptLRN(nn.Module):
 
 
 # text prompt + visual prompt learning
+class VisualEncoder2(nn.Module):
+    def __init__(self, cfg):
+        super(VisualEncoder, self).__init__()
+        clipmodel = transformers.CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
+        self.pre_ln = clipmodel.vision_model.pre_layernorm
+        self.visual = clipmodel.vision_model.encoder
+        self.post_ln = clipmodel.vision_model.post_layernorm
+        self.vision_proj = clipmodel.visual_projection
+    
+    def forward(self, prompt):
+        '''
+        prompt : torch.FloatTensor shape of (N, 50+n_ctx, 512)
+        '''
+        x = self.pre_ln(prompt)
+        x = self.visual(x).last_hidden_state[:,0,:]
+        x = self.post_ln(x)
+        x = self.vision_proj(x)
+        return x
+
 class VCPromptLRN(nn.Module):
     def __init__(self, labels, cfg):
         super().__init__()
         self.cfg = cfg
         self.labels = labels
         clipmodel = transformers.CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
+        # text encoder
         self.tokenizer = transformers.CLIPTokenizer.from_pretrained('openai/clip-vit-base-patch32')
         self.token_embedding = clipmodel.text_model.embeddings.token_embedding
-        self.img_enc = nn.Sequential(clipmodel.vision_model, clipmodel.visual_projection)
         self.text_enc = TextEncoder(cfg)
+
+        # vision encoder
+        self.patch_embedding = clipmodel.vision_model.embeddings.patch_embedding
+        self.pos_embedding = clipmodel.vision_model.embeddings.positional_embedding.weight
+        self.img_enc = VisualEncoder2(cfg)
+
         self.logit_scale = clipmodel.logit_scale
         self.construct_prompt()
         del clipmodel
 
     def construct_prompt(self):
-        ctx_len = self.cfg.ctx_len
+        self.ctx_len = self.cfg.model.ctx_len
+        self.v_ctx_len = self.cfg.model.v_ctx_len
 
-        # initialize prompt embedding
-        prompt_vec = torch.empty(16, 512, dtype=self.text_enc.dtype)
+        # text prompt embedding
+        ## initialize prompt embedding
+        prompt_vec = torch.empty(self.ctx_len, self.cfg.model.h_dim, dtype=self.text_enc.dtype)
         nn.init.normal_(prompt_vec, std=0.01)
         self.prompt_emb = nn.Parameter(prompt_vec)
 
-        # tokenize "prompt_prefix + [class]"
-        prompt_prefix = " ".join(['V']*ctx_len)
+        ## tokenize "prompt_prefix + [class]"
+        prompt_prefix = " ".join(['V']*self.ctx_len)
         classnames = [name.replace("_", " ") for name in self.labels]
         name_lens = [len(self.tokenizer.encode(name)) for name in classnames]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        prompts_tokenized = self.tokenizer.batch_encode_plus(prompts, return_tensors='pt', padding=True, max_length='max_length')
+        prompts_tokenized = self.tokenizer.batch_encode_plus(prompts, return_tensors='pt', padding='max_length')
         with torch.no_grad():
             embedding = self.token_embedding(prompts_tokenized['input_ids']).type(self.text_enc.dtype)
         
-        # extract [SOS] word embedding & [CLASS],[EOS] word embedding
-        self.sos_emb = embedding[:,0,:]
-        self.class_emb = embedding[:, 1+ctx_len:, :]
+        ## extract [SOS] word embedding & [CLASS],[EOS] word embedding
+        self.sos_emb = embedding[:,0,:].unsqueeze(1) # n_cls x 1 x h_dim
+        self.class_emb = embedding[:, 1+self.ctx_len:, :] # n_cls x * x h_dim
+
+
+        # visual prompt embedding
+        ## initialize visual prompt embedding
+        v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.h_dim, dtype=self.text_enc.dtype)
+        nn.init.normal_(v_prompt_vec, std=0.01)
+        self.v_prompt_emb = nn.Parameter(v_prompt_vec)
 
     def forward(self, pixel_values):
+        batch_size = pixel_values.shape[0]
+        # forward propagate class features
         context = self.prompt_emb
         prefix = self.sos_emb
         suffix = self.class_emb
-
         prompt = torch.cat([prefix, context, suffix], dim=1)
         text_f = self.text_enc(prompt)
-        img_f = self.img_enc(pixel_values)
+
+        # forward propagate image features
+        x = self.patch_embedding(pixel_values)
+        x = x + self.pos_embedding # (N,L,D)
+        v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,1+self.v_ctx_len]], dim=1)
+        img_f = self.img_enc(v_prompt)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t())
         return logits
