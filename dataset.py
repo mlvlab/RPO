@@ -5,12 +5,14 @@ import pandas as pd
 import torch
 from torch.utils import data
 import torchvision.transforms as T
+import PIL
 
 
 
 class Dataset(data.Dataset):
-    def __init__(self, dataset='sun397', train=True):
+    def __init__(self, dataset, k_shot, train=True):
         super(Dataset, self).__init__()
+        self.k_shot = k_shot
         self.train = train
         # transform pipeline
         self.transforms = T.Compose([T.ToTensor(),
@@ -45,11 +47,23 @@ class Dataset(data.Dataset):
             self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels})
             self.labels = list(np.unique(labels))
 
+        if self.train:
+            self.subsampling()
+
+    # for few-shot training
+    def subsampling(self):
+        pass
+
     def __len__(self):
         return len(self.df)
 
     def __getitem(self, index):
-        pass 
+        img = PIL.Image.open(self.df.img_dir[index])
+        x = self.transforms(img)
+        if self.train:
+            return x, self.df.labels[index]
+        else:
+            return x
 
 
             

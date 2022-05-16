@@ -234,3 +234,26 @@ class VCPromptLRN(nn.Module):
         img_f = self.img_enc(v_prompt)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t())
         return logits
+
+
+class ContextOptim(nn.Module):
+    def __init__(self, cfg, dataloader, text_only = True):
+        super(ContextOptim, self).__init__()
+        # define model
+        if text_only:
+            self.model = PromptLRN(dataloader.dataset.labels, cfg)
+        else:
+            self.model = VCPromptLRN(dataloader.dataset.labels, cfg)
+        
+        # freeze weight
+        for n, param in self.model.parameters():
+            if 'prompt' not in n:
+                param.requires_grad = False
+        
+        self.dataloader = dataloader
+        self.cfg = cfg
+    
+    def train(self):
+        pass
+    def save(self):
+        pass 
