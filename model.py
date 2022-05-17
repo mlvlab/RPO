@@ -2,6 +2,9 @@ import os
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.optim import Adam
+from torch.optim.lr_scheduler import OneCycleLR
+
 
 import transformers
 from transformers import CLIPModel, CLIPTokenizer, CLIPFeatureExtractor
@@ -66,7 +69,6 @@ class Zeroshot_CLIP(nn.Module):
         return acc 
 
 
-# text prompt learning
 # text prompt learning
 class TextEncoder(nn.Module):
     def __init__(self, cfg):
@@ -238,13 +240,15 @@ class VCPromptLRN(nn.Module):
         return logits
 
 
-class ContextOptim(object):
-    def __init__(self, cfg, text_only = True):
-        super(ContextOptim, self).__init__()
+# Prompt Optmizer : Trainer
+class PromptOptim(object):
+    def __init__(self, cfg, type = 'text', start_epoch = 0):
+        super(PromptOptim, self).__init__()
         
         # set configuration
         self.cfg = cfg
-        self.text_only = text_only
+        self.type = type
+        self.start_epoch = start_epoch
         
         # set dataloader
         self.dataloader = torch.utils.data.DataLoader(Dataset(dataset=self.cfg.train.dataset,
@@ -252,7 +256,7 @@ class ContextOptim(object):
                                                     batch_size = self.cfg.train.batch_size)
     
         # define model
-        if text_only:
+        if type == 'text':
             self.model = PromptLRN(self.dataloader.dataset.labels, cfg)
         else:
             self.model = VCPromptLRN(self.dataloader.dataset.labels, cfg)
@@ -263,21 +267,38 @@ class ContextOptim(object):
                 param.requires_grad = False
 
         # set optimizer & lr scheduler
+        self.optimizer = Adam(self.model.parameters(), lr = 0.001)
+        self.lr_sched = OneCycleLR(self.optimizer,
+                                 max_lr = self.cfg.train.max_lr,
+                                 epochs = self.cfg.train.n_epochs,
+                                 steps_per_epoch = len(self.dataloader),
+                                 pct_start = self.cfg.train.pct_start,
+                                 anneal_strategy = 'cos',
+                                 div_factor = 100,
+                                 final_div_factor = 10)
+        # load pretrained model / optimizer / lr_scheduler
+        if start_epoch > 5:
+            self.model.load_state_dict(torch.load('./ckpt/promptlearn_{}_epoch{}/model.pt'.format(self.type, self.start_epoch+1)))
+            self.optimizer.load_state_dict(torch.load('./ckpt/promptlearn_{}_epoch{}/optimizer.pt'.format(self.type, self.start_epoch+1)))
+            self.lr_sched.load_state_dict(torch.load('./ckpt/promptlearn_{}_epoch{}/lr_sched.pt'.format(self.type, self.start_epoch+1)))
 
         # set loss function
         self.criterion = nn.CrossEntropyLoss()
 
     def train(self):
-        for epoch in range(self.cfg.train.n_epochs):
+        for epoch in range(self.start_epoch, self.cfg.train.n_epochs):
             print('Epoch {}'.format(epoch+1))
             for step, (pixel_values, label) in enumerate(self.dataloader):
                 logits = self.model(pixel_values) # (batch_size, n_cls)
                 loss = self.criterion(logits, label)
                 loss.backward()
+                self.optimizer.step()
+                self.lr_sched.step()
             
             # save checkpoint
             if (epoch+1)%5 == 0:
-                if self.text_only:
-                    torch.save(self.model.state_dict, './ckpt/promptlearn_{}_epoch{}'.format('text', epoch+1))
-                else:
-                    torch.save(self.model.state_dict, './ckpt/promptlearn_{}_epoch{}'.format('vision+text', epoch+1))
+                if not os.path.exists('./ckpt/promptlearn_{}_epoch{}/'.format(self.type, epoch+1)):
+                    os.mkdir('./ckpt/promptlearn_{}_epoch{}/'.format(self.type, epoch+1))
+                torch.save(self.model.state_dict, './ckpt/promptlearn_{}_epoch{}/model.pt'.format(self.type, epoch+1))
+                torch.save(self.optimizer.state_dict, './ckpt/promptlearn_{}_epoch{}/optimizer.pt'.format(self.type, epoch+1))
+                torch.save(self.lr_sched.state_dict, './ckpt/promptlearn_{}_epoch{}/lr_sched.pt'.format(self.type, epoch+1))
