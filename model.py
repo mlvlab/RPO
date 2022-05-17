@@ -6,6 +6,8 @@ from torch.nn import functional as F
 import transformers
 from transformers import CLIPModel, CLIPTokenizer, CLIPFeatureExtractor
 
+from dataset import Dataset
+
 
 # zero-shot classifier baseline
 class Zeroshot_CLIP(nn.Module):
@@ -143,7 +145,7 @@ class PromptLRN(nn.Module):
         prompt = torch.cat([prefix, context, suffix], dim=1) # n_cls x 77 x h_dim
         text_f = self.text_enc(prompt)
         img_f = self.img_enc(pixel_values)
-        logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t())
+        logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) # batch_size, n_cls
         return logits
 
 
@@ -232,28 +234,50 @@ class VCPromptLRN(nn.Module):
         x = x + self.pos_embedding # (N,L,D)
         v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,1+self.v_ctx_len]], dim=1)
         img_f = self.img_enc(v_prompt)
-        logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t())
+        logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) 
         return logits
 
 
-class ContextOptim(nn.Module):
-    def __init__(self, cfg, dataloader, text_only = True):
+class ContextOptim(object):
+    def __init__(self, cfg, text_only = True):
         super(ContextOptim, self).__init__()
+        
+        # set configuration
+        self.cfg = cfg
+        self.text_only = text_only
+        
+        # set dataloader
+        self.dataloader = torch.utils.data.DataLoader(Dataset(dataset=self.cfg.train.dataset,
+                                                            k_shot=self.cfg.train.k_shot),
+                                                    batch_size = self.cfg.train.batch_size)
+    
         # define model
         if text_only:
-            self.model = PromptLRN(dataloader.dataset.labels, cfg)
+            self.model = PromptLRN(self.dataloader.dataset.labels, cfg)
         else:
-            self.model = VCPromptLRN(dataloader.dataset.labels, cfg)
-        
+            self.model = VCPromptLRN(self.dataloader.dataset.labels, cfg)
+         
         # freeze weight
         for n, param in self.model.parameters():
             if 'prompt' not in n:
                 param.requires_grad = False
-        
-        self.dataloader = dataloader
-        self.cfg = cfg
-    
+
+        # set optimizer & lr scheduler
+
+        # set loss function
+        self.criterion = nn.CrossEntropyLoss()
+
     def train(self):
-        pass
-    def save(self):
-        pass 
+        for epoch in range(self.cfg.train.n_epochs):
+            print('Epoch {}'.format(epoch+1))
+            for step, (pixel_values, label) in enumerate(self.dataloader):
+                logits = self.model(pixel_values) # (batch_size, n_cls)
+                loss = self.criterion(logits, label)
+                loss.backward()
+            
+            # save checkpoint
+            if (epoch+1)%5 == 0:
+                if self.text_only:
+                    torch.save(self.model.state_dict, './ckpt/promptlearn_{}_epoch{}'.format('text', epoch+1))
+                else:
+                    torch.save(self.model.state_dict, './ckpt/promptlearn_{}_epoch{}'.format('vision+text', epoch+1))

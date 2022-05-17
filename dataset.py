@@ -37,15 +37,16 @@ class Dataset(data.Dataset):
 
         # SUN397
         elif dataset == 'sun397':
-            img_path = './data/sun397/img/'
+            img_path = './data/sun397/img'
             if self.train:
                 partition_path = './data/sun397/Partitions/Training_01.txt'
             else:
                 partition_path = './data/sun397/Partitions/Testing_01.txt'
-            img_dir = list(map(lambda x : os.path.join(img_path, x), pathlib.Path(partition_path).read_text().split('\n')))
+            img_dir = list(map(lambda x : img_path + x, pathlib.Path(partition_path).read_text().split('\n')))
             labels = list(map(lambda x: x.split('/')[-2], img_dir))
-            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels})
             self.labels = list(np.unique(labels))
+            labels_idx = list(map(lambda x: self.labels.index(x), labels))
+            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx})
 
         if self.train:
             self.subsampling()
@@ -57,16 +58,10 @@ class Dataset(data.Dataset):
     def __len__(self):
         return len(self.df)
 
-    def __getitem(self, index):
+    def __getitem__(self, index):
         img = PIL.Image.open(self.df.img_dir[index])
         x = self.transforms(img)
         if self.train:
             return x, self.df.labels[index]
         else:
             return x
-
-
-            
-
-
-
