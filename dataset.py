@@ -32,8 +32,9 @@ class Dataset(data.Dataset):
                 else:
                     img_dir += map(lambda x: os.path.join(img_path, c)+'/'+x, os.listdir(os.path.join(img_path, c)))
             labels = list(map(lambda x: x.split('/')[-2], img_dir))
-            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels})
             self.labels = list(np.unique(labels))
+            labels_idx = list(map(lambda x: self.labels.index(x), labels))
+            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx})
 
         # SUN397
         elif dataset == 'sun397':

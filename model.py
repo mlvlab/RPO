@@ -260,14 +260,14 @@ class PromptOptim(object):
             self.model = PromptLRN(self.dataloader.dataset.labels, cfg)
         else:
             self.model = VCPromptLRN(self.dataloader.dataset.labels, cfg)
-         
+        self.model.cuda()
         # freeze weight
-        for n, param in self.model.parameters():
+        for n, param in self.model.named_parameters():
             if 'prompt' not in n:
                 param.requires_grad = False
 
         # set optimizer & lr scheduler
-        self.optimizer = Adam(self.model.parameters(), lr = 0.001)
+        self.optimizer = Adam(self.model.parameters())
         self.lr_sched = OneCycleLR(self.optimizer,
                                  max_lr = self.cfg.train.max_lr,
                                  epochs = self.cfg.train.n_epochs,
@@ -286,14 +286,21 @@ class PromptOptim(object):
         self.criterion = nn.CrossEntropyLoss()
 
     def train(self):
+        history = []
         for epoch in range(self.start_epoch, self.cfg.train.n_epochs):
             print('Epoch {}'.format(epoch+1))
+            epoch_loss = 0
             for step, (pixel_values, label) in enumerate(self.dataloader):
-                logits = self.model(pixel_values) # (batch_size, n_cls)
-                loss = self.criterion(logits, label)
+                logits = self.model(pixel_values.cuda()) # (batch_size, n_cls)
+                loss = self.criterion(logits, label.cuda())
                 loss.backward()
                 self.optimizer.step()
                 self.lr_sched.step()
+                epoch_loss += loss.item()
+                history.append(epoch_loss / (step+1))
+                # verbosity
+                #if ((step+1) % 10) == 0:
+                print('| {} / {} | train loss : {}'.format(step+1, len(self.dataloader), epoch_loss/(step+1)))
             
             # save checkpoint
             if (epoch+1)%5 == 0:
