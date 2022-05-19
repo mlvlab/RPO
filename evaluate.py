@@ -20,6 +20,8 @@ def top_k_acc(pred, y, top_k=1):
 
 
 if __name__ == '__main__':
+    # set device
+    device = torch.device('mps')
 
     # parsing
     parser = argparse.ArgumentParser(description = 'evaluation settings')
@@ -36,13 +38,13 @@ if __name__ == '__main__':
     model = PromptLRN(testset.labels, cfg)
     # load trained 
     model.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(args.type, args.kshot, args.epoch)))
-    model.eval()
+    model.eval().to(device)
     ys = torch.tensor(testset.df.labels.values)
     preds = torch.tensor([])
     # evaluation iteration
     with torch.no_grad():
         for step, pixel in enumerate(testloader):
-            logits = model(pixel)
+            logits = model(pixel.to(device))
             pred = torch.topk(logits, topk=args.topk, dim=1).indices
             preds = torch.cat([preds, pred], dim=0)
         acc = top_k_acc(preds, ys, top_k = args.topk)
