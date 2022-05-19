@@ -1,4 +1,6 @@
 import os
+
+from zmq import device
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -104,10 +106,11 @@ class VisualEncoder(nn.Module):
         return x
 
 class PromptLRN(nn.Module):
-    def __init__(self, labels, cfg):
+    def __init__(self, labels, cfg, device):
         super(PromptLRN, self).__init__()
         self.cfg = cfg
         self.labels = labels
+        self.device = device
         self.n_cls = len(labels)
         clipmodel = transformers.CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
         self.tokenizer = transformers.CLIPTokenizer.from_pretrained('openai/clip-vit-base-patch32')
@@ -144,9 +147,12 @@ class PromptLRN(nn.Module):
         prefix = self.sos_emb
         suffix = self.class_emb
         # create continuous prompt
-        prompt = torch.cat([prefix, context, suffix], dim=1) # n_cls x 77 x h_dim
-        text_f = self.text_enc(prompt)
+        prompt = torch.cat([prefix.to(self.device), context.to(self.device), suffix.to(self.device)], dim=1) # n_cls x 77 x h_dim
+        print('phase1')
         img_f = self.img_enc(pixel_values)
+        print('phase2')
+        text_f = self.text_enc(prompt)
+        print('phase3')
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) # batch_size, n_cls
         return logits
 
@@ -173,21 +179,23 @@ class VisualEncoder2(nn.Module):
         return x
 
 class VCPromptLRN(nn.Module):
-    def __init__(self, labels, cfg):
+    def __init__(self, labels, cfg, device):
         super(VCPromptLRN, self).__init__()
         self.cfg = cfg
         self.labels = labels
+        self.device = device
         self.n_cls = len(labels)
         clipmodel = transformers.CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
         # text encoder
         self.tokenizer = transformers.CLIPTokenizer.from_pretrained('openai/clip-vit-base-patch32')
         self.token_embedding = clipmodel.text_model.embeddings.token_embedding
         self.text_enc = TextEncoder(cfg)
+    
 
         # vision encoder
-        self.patch_embedding = clipmodel.vision_model.embeddings.patch_embedding
-        self.pos_embedding = clipmodel.vision_model.embeddings.position_embedding.weight
-        self.cls_embedding = nn.Parameter(torch.randn(1,self.pos_embedding.shape[-1]))
+        self.patch_embedding = clipmodel.vision_model.embeddings.patch_embedding.to(self.device)
+        self.pos_embedding = clipmodel.vision_model.embeddings.position_embedding.weight.to(self.device)
+        self.cls_embedding = clipmodel.vision_model.embeddings.class_embedding.to(self.device)
         self.img_enc = VisualEncoder2(cfg)
 
         self.logit_scale = clipmodel.logit_scale
@@ -202,7 +210,7 @@ class VCPromptLRN(nn.Module):
         ## initialize prompt embedding
         prompt_vec = torch.empty(self.ctx_len, self.cfg.model.t_h_dim, dtype=self.text_enc.dtype)
         nn.init.normal_(prompt_vec, std=0.01)
-        self.prompt_emb = nn.Parameter(prompt_vec)
+        self.prompt_emb = nn.Parameter(prompt_vec, requires_grad=True).to(self.device) ##################
 
         ## tokenize "prompt_prefix + [class]"
         prompt_prefix = " ".join(['V']*self.ctx_len)
@@ -221,8 +229,8 @@ class VCPromptLRN(nn.Module):
         # visual prompt embedding
         ## initialize visual prompt embedding
         v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.v_h_dim, dtype=self.text_enc.dtype)
-        nn.init.normal_(v_prompt_vec, std=0.01)
-        self.v_prompt_emb = nn.Parameter(v_prompt_vec)
+        nn.init.normal_(v_prompt_vec, std=0.02)
+        self.v_prompt_emb = nn.Parameter(v_prompt_vec, requires_grad=True).to(self.device) ######################
 
     def forward(self, pixel_values):
         batch_size = pixel_values.shape[0]
@@ -230,7 +238,7 @@ class VCPromptLRN(nn.Module):
         context = self.prompt_emb.repeat(self.n_cls, 1,1)
         prefix = self.sos_emb
         suffix = self.class_emb
-        prompt = torch.cat([prefix, context, suffix], dim=1)
+        prompt = torch.cat([prefix.to(self.device), context.to(self.device), suffix.to(self.device)], dim=1)
         text_f = self.text_enc(prompt)
 
         # forward propagate image features
@@ -238,7 +246,7 @@ class VCPromptLRN(nn.Module):
         x = x.view(x.shape[0], x.shape[1], -1).permute(0,2,1) # (batch_size, 49, h_dim)
         x = torch.cat([self.cls_embedding.repeat(batch_size,1,1), x], dim=1) # (batch_size, 50, h_dim)
         x = x + self.pos_embedding # (N,L,D)
-        v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,(1+self.v_ctx_len):,:]], dim=1)
+        v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,(1+self.v_ctx_len):,:]], dim=1) 
         img_f = self.img_enc(v_prompt)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) 
         return logits
@@ -246,7 +254,7 @@ class VCPromptLRN(nn.Module):
 
 # Prompt Optmizer : Trainer
 class PromptOptim(object):
-    def __init__(self, cfg, dataset = None, kshot = None, type = 'text', start_epoch = 0):
+    def __init__(self, cfg, device, dataset = None, kshot = None, type = 'text', start_epoch = 0):
         super(PromptOptim, self).__init__()
         
         # set configuration
@@ -254,18 +262,19 @@ class PromptOptim(object):
         self.type = type
         self.kshot = kshot
         self.start_epoch = start_epoch
-        
+        self.device = device
         # set dataloader
         self.dataloader = torch.utils.data.DataLoader(Dataset(dataset=dataset,
                                                             k_shot=kshot),
-                                                    batch_size = self.cfg.train.batch_size)
+                                                    batch_size = self.cfg.train.batch_size, 
+                                                    shuffle = True)
     
         # define model
         if type == 'text':
-            self.model = PromptLRN(self.dataloader.dataset.labels, cfg)
+            self.model = PromptLRN(self.dataloader.dataset.labels, cfg, device)
         else:
-            self.model = VCPromptLRN(self.dataloader.dataset.labels, cfg)
-        #self.model.cuda()
+            self.model = VCPromptLRN(self.dataloader.dataset.labels, cfg, device)
+        self.model.to(device)
         # freeze weight
         for n, param in self.model.named_parameters():
             if 'prompt' not in n:
@@ -283,9 +292,9 @@ class PromptOptim(object):
                                  final_div_factor = 10)
         # load pretrained model / optimizer / lr_scheduler
         if start_epoch > 5:
-            self.model.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
-            self.optimizer.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
-            self.lr_sched.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/lr_sched_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
+            self.model.load_state_dict(torch.load('ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
+            self.optimizer.load_state_dict(torch.load('ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
+            self.lr_sched.load_state_dict(torch.load('ckpt/promptlearn_{}/{}_shot/lr_sched_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
 
         # set loss function
         self.criterion = nn.CrossEntropyLoss()
@@ -296,8 +305,8 @@ class PromptOptim(object):
             print('-'*10 + 'Epoch {}'.format(epoch+1)+'-'*10)
             epoch_loss = 0
             for step, (pixel_values, label) in enumerate(self.dataloader):
-                logits = self.model(pixel_values) # (batch_size, n_cls)
-                loss = self.criterion(logits, label)
+                logits = self.model(pixel_values.to(self.device)) # (batch_size, n_cls)
+                loss = self.criterion(logits, label.to(self.device))
                 loss.backward()
                 self.optimizer.step()
                 self.lr_sched.step()
@@ -308,9 +317,9 @@ class PromptOptim(object):
                 print('| {} / {} | train loss : {}'.format(step+1, len(self.dataloader), epoch_loss/(step+1)))
             
             # save checkpoint
-            if (epoch+1)%5 == 0:
-                if not os.path.exists('./ckpt/promptlearn_{}/{}_shot/'.format(self.type, self.kshot)):
-                    os.mkdir('./ckpt/promptlearn_{}/{}_shot/'.format(self.type, self.kshot))
-                torch.save(self.model.state_dict, './ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch+1))
-                torch.save(self.optimizer.state_dict, './ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch+1))
-                torch.save(self.lr_sched.state_dict, './ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch+1))
+            if (epoch+1)%10 == 0:
+                #if not os.path.exists('./ckpt/promptlearn_{}/{}_shot/'.format(self.type, self.kshot)):
+                    #os.mkdir('./ckpt/promptlearn_{}/{}_shot/'.format(self.type, self.kshot))
+                torch.save(self.model.state_dict, './ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, epoch+1))
+                torch.save(self.optimizer.state_dict, './ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, epoch+1))
+                torch.save(self.lr_sched.state_dict, './ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, epoch+1)) 
