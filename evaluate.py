@@ -48,6 +48,3 @@ if __name__ == '__main__':
         acc = top_k_acc(preds, ys, top_k = args.topk)
     
     print('top {} Accuracy on {} dataset with {} shot setting : {}%'.format(args.topk, args.dataset, args.kshot, acc))
-
-
-

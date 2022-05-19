@@ -47,14 +47,10 @@ class Dataset(data.Dataset):
             labels = list(map(lambda x: x.split('/')[-2], img_dir))
             self.labels = list(np.unique(labels))
             labels_idx = list(map(lambda x: self.labels.index(x), labels))
-            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx})
+            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx}).iloc[:-1, :]
 
         if self.train:
-            self.subsampling()
-
-    # for few-shot training
-    def subsampling(self):
-        self.df = self.df.groupby('labels').sample(n=self.k_shot, random_state=2022)
+            self.df = self.df.groupby('labels').sample(n=self.k_shot, random_state=2022)
 
     def __len__(self):
         return len(self.df)

@@ -6,7 +6,8 @@ cfg = edict()
 cfg.model = edict()
 cfg.model.ctx_len = 16
 cfg.model.v_ctx_len = 10
-cfg.model.h_dim = 512
+cfg.model.t_h_dim = 512
+cfg.model.v_h_dim = 768
 
 cfg.train = edict()
 cfg.train.dataset = 'sun397'

@@ -122,7 +122,7 @@ class PromptLRN(nn.Module):
         ctx_len = self.cfg.model.ctx_len
 
         # initialize prompt embedding
-        prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.h_dim, dtype=self.text_enc.dtype)
+        prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.text_enc.dtype)
         nn.init.normal_(prompt_vec, std=0.01)
         self.prompt_emb = nn.Parameter(prompt_vec)
 
@@ -155,9 +155,9 @@ class PromptLRN(nn.Module):
 # text prompt + visual prompt learning
 class VisualEncoder2(nn.Module):
     def __init__(self, cfg):
-        super(VisualEncoder, self).__init__()
+        super(VisualEncoder2, self).__init__()
         clipmodel = transformers.CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
-        self.pre_ln = clipmodel.vision_model.pre_layernorm
+        self.pre_ln = clipmodel.vision_model.pre_layrnorm
         self.visual = clipmodel.vision_model.encoder
         self.post_ln = clipmodel.vision_model.post_layernorm
         self.vision_proj = clipmodel.visual_projection
@@ -174,9 +174,10 @@ class VisualEncoder2(nn.Module):
 
 class VCPromptLRN(nn.Module):
     def __init__(self, labels, cfg):
-        super().__init__()
+        super(VCPromptLRN, self).__init__()
         self.cfg = cfg
         self.labels = labels
+        self.n_cls = len(labels)
         clipmodel = transformers.CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
         # text encoder
         self.tokenizer = transformers.CLIPTokenizer.from_pretrained('openai/clip-vit-base-patch32')
@@ -185,7 +186,8 @@ class VCPromptLRN(nn.Module):
 
         # vision encoder
         self.patch_embedding = clipmodel.vision_model.embeddings.patch_embedding
-        self.pos_embedding = clipmodel.vision_model.embeddings.positional_embedding.weight
+        self.pos_embedding = clipmodel.vision_model.embeddings.position_embedding.weight
+        self.cls_embedding = nn.Parameter(torch.randn(1,self.pos_embedding.shape[-1]))
         self.img_enc = VisualEncoder2(cfg)
 
         self.logit_scale = clipmodel.logit_scale
@@ -198,7 +200,7 @@ class VCPromptLRN(nn.Module):
 
         # text prompt embedding
         ## initialize prompt embedding
-        prompt_vec = torch.empty(self.ctx_len, self.cfg.model.h_dim, dtype=self.text_enc.dtype)
+        prompt_vec = torch.empty(self.ctx_len, self.cfg.model.t_h_dim, dtype=self.text_enc.dtype)
         nn.init.normal_(prompt_vec, std=0.01)
         self.prompt_emb = nn.Parameter(prompt_vec)
 
@@ -212,29 +214,31 @@ class VCPromptLRN(nn.Module):
             embedding = self.token_embedding(prompts_tokenized['input_ids']).type(self.text_enc.dtype)
         
         ## extract [SOS] word embedding & [CLASS],[EOS] word embedding
-        self.sos_emb = embedding[:,0,:].unsqueeze(1) # n_cls x 1 x h_dim
+        self.sos_emb = embedding[:,:1,:] # n_cls x 1 x h_dim
         self.class_emb = embedding[:, 1+self.ctx_len:, :] # n_cls x * x h_dim
 
 
         # visual prompt embedding
         ## initialize visual prompt embedding
-        v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.h_dim, dtype=self.text_enc.dtype)
+        v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.v_h_dim, dtype=self.text_enc.dtype)
         nn.init.normal_(v_prompt_vec, std=0.01)
         self.v_prompt_emb = nn.Parameter(v_prompt_vec)
 
     def forward(self, pixel_values):
         batch_size = pixel_values.shape[0]
         # forward propagate class features
-        context = self.prompt_emb
+        context = self.prompt_emb.repeat(self.n_cls, 1,1)
         prefix = self.sos_emb
         suffix = self.class_emb
         prompt = torch.cat([prefix, context, suffix], dim=1)
         text_f = self.text_enc(prompt)
 
         # forward propagate image features
-        x = self.patch_embedding(pixel_values)
+        x = self.patch_embedding(pixel_values) # (batch_size, h_dim, 7, 7)
+        x = x.view(x.shape[0], x.shape[1], -1).permute(0,2,1) # (batch_size, 49, h_dim)
+        x = torch.cat([self.cls_embedding.repeat(batch_size,1,1), x], dim=1) # (batch_size, 50, h_dim)
         x = x + self.pos_embedding # (N,L,D)
-        v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,1+self.v_ctx_len]], dim=1)
+        v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,(1+self.v_ctx_len):,:]], dim=1)
         img_f = self.img_enc(v_prompt)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) 
         return logits
@@ -261,7 +265,7 @@ class PromptOptim(object):
             self.model = PromptLRN(self.dataloader.dataset.labels, cfg)
         else:
             self.model = VCPromptLRN(self.dataloader.dataset.labels, cfg)
-        self.model.cuda()
+        #self.model.cuda()
         # freeze weight
         for n, param in self.model.named_parameters():
             if 'prompt' not in n:
@@ -289,11 +293,11 @@ class PromptOptim(object):
     def train(self):
         history = []
         for epoch in range(self.start_epoch, self.cfg.train.n_epochs):
-            print('Epoch {}'.format(epoch+1))
+            print('-'*10 + 'Epoch {}'.format(epoch+1)+'-'*10)
             epoch_loss = 0
             for step, (pixel_values, label) in enumerate(self.dataloader):
-                logits = self.model(pixel_values.cuda()) # (batch_size, n_cls)
-                loss = self.criterion(logits, label.cuda())
+                logits = self.model(pixel_values) # (batch_size, n_cls)
+                loss = self.criterion(logits, label)
                 loss.backward()
                 self.optimizer.step()
                 self.lr_sched.step()
