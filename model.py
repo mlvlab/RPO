@@ -242,17 +242,18 @@ class VCPromptLRN(nn.Module):
 
 # Prompt Optmizer : Trainer
 class PromptOptim(object):
-    def __init__(self, cfg, type = 'text', start_epoch = 0):
+    def __init__(self, cfg, dataset = None, kshot = None, type = 'text', start_epoch = 0):
         super(PromptOptim, self).__init__()
         
         # set configuration
         self.cfg = cfg
         self.type = type
+        self.kshot = kshot
         self.start_epoch = start_epoch
         
         # set dataloader
-        self.dataloader = torch.utils.data.DataLoader(Dataset(dataset=self.cfg.train.dataset,
-                                                            k_shot=self.cfg.train.k_shot),
+        self.dataloader = torch.utils.data.DataLoader(Dataset(dataset=dataset,
+                                                            k_shot=kshot),
                                                     batch_size = self.cfg.train.batch_size)
     
         # define model
@@ -278,9 +279,9 @@ class PromptOptim(object):
                                  final_div_factor = 10)
         # load pretrained model / optimizer / lr_scheduler
         if start_epoch > 5:
-            self.model.load_state_dict(torch.load('./ckpt/promptlearn_{}_epoch{}/model.pt'.format(self.type, self.start_epoch+1)))
-            self.optimizer.load_state_dict(torch.load('./ckpt/promptlearn_{}_epoch{}/optimizer.pt'.format(self.type, self.start_epoch+1)))
-            self.lr_sched.load_state_dict(torch.load('./ckpt/promptlearn_{}_epoch{}/lr_sched.pt'.format(self.type, self.start_epoch+1)))
+            self.model.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
+            self.optimizer.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
+            self.lr_sched.load_state_dict(torch.load('./ckpt/promptlearn_{}/{}_shot/lr_sched_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
 
         # set loss function
         self.criterion = nn.CrossEntropyLoss()
@@ -304,8 +305,8 @@ class PromptOptim(object):
             
             # save checkpoint
             if (epoch+1)%5 == 0:
-                if not os.path.exists('./ckpt/promptlearn_{}_epoch{}/'.format(self.type, epoch+1)):
-                    os.mkdir('./ckpt/promptlearn_{}_epoch{}/'.format(self.type, epoch+1))
-                torch.save(self.model.state_dict, './ckpt/promptlearn_{}_epoch{}/model.pt'.format(self.type, epoch+1))
-                torch.save(self.optimizer.state_dict, './ckpt/promptlearn_{}_epoch{}/optimizer.pt'.format(self.type, epoch+1))
-                torch.save(self.lr_sched.state_dict, './ckpt/promptlearn_{}_epoch{}/lr_sched.pt'.format(self.type, epoch+1))
+                if not os.path.exists('./ckpt/promptlearn_{}/{}_shot/'.format(self.type, self.kshot)):
+                    os.mkdir('./ckpt/promptlearn_{}/{}_shot/'.format(self.type, self.kshot))
+                torch.save(self.model.state_dict, './ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch+1))
+                torch.save(self.optimizer.state_dict, './ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch+1))
+                torch.save(self.lr_sched.state_dict, './ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch+1))

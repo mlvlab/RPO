@@ -10,7 +10,7 @@ import PIL
 
 
 class Dataset(data.Dataset):
-    def __init__(self, dataset, k_shot, train=True):
+    def __init__(self, dataset, k_shot=None, train=True):
         super(Dataset, self).__init__()
         self.k_shot = k_shot
         self.train = train
@@ -54,15 +54,15 @@ class Dataset(data.Dataset):
 
     # for few-shot training
     def subsampling(self):
-        pass
+        self.df = self.df.groupby('labels').sample(n=self.k_shot, random_state=2022)
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, index):
-        img = PIL.Image.open(self.df.img_dir[index])
+        img = PIL.Image.open(self.df.img_dir.iloc[index])
         x = self.transforms(img)
         if self.train:
-            return x, self.df.labels[index]
+            return x, self.df.labels.iloc[index]
         else:
             return x
