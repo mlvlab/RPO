@@ -14,5 +14,5 @@ if __name__ == '__main__':
     parser.add_argument('--start_epoch', required=True, type=int)
     args = parser.parse_args()
 
-    proptim = CrossPromptOptim(cfg, args.device, args.dataset, args.kshot, args.type , args.start_epoch)
+    proptim = PromptOptim(cfg, args.device, args.dataset, args.kshot, args.type , args.start_epoch)
     proptim.train()
