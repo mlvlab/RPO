@@ -9,8 +9,7 @@ from torch.nn import functional as F
 from torch.optim import Adam
 from torch.optim.lr_scheduler import OneCycleLR, CyclicLR, _LRScheduler
 
-import transformers
-from transformers import CLIPModel, CLIPTokenizer, CLIPFeatureExtractor
+import clip
 
 from dataset import Dataset
 from lr_scheduler import ConstantWarmupScheduler

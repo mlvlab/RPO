@@ -15,11 +15,6 @@ class Dataset(data.Dataset):
         super(Dataset, self).__init__()
         self.k_shot = k_shot
         self.train = train
-        # transform pipeline
-        self.transforms = T.Compose([T.ToTensor(),
-                                     T.Resize((224,224)),
-                                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                                    ])
         # create img_dir, text label list
         img_dir = []
         labels = []
@@ -84,8 +79,7 @@ class Dataset(data.Dataset):
 
     def __getitem__(self, index):
         img = PIL.Image.open(self.df.img_dir.iloc[index])
-        x = self.transforms(img)
         if self.train == 'train':
-            return x, self.df.labels.iloc[index]
+            return T.ToTensor()(img), self.df.labels.iloc[index]
         else:
-            return x
+            return T.ToTensor()(img)
