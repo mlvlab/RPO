@@ -5,8 +5,8 @@ cfg = edict()
 
 cfg.model = edict()
 cfg.model.backbone = 'ViT-B/32'
-cfg.model.ctx_len = 16
-cfg.model.v_ctx_len = 3
+cfg.model.ctx_len = 4
+cfg.model.v_ctx_len = 1
 cfg.model.h_dim = 512
 cfg.model.t_h_dim = 512
 cfg.model.v_h_dim = 768

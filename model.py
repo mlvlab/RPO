@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import OneCycleLR, CyclicLR, _LRScheduler
 
 import clip
 
-from dataset import Dataset
+from dataset import Dataset, UnseenDataset
 from lr_scheduler import ConstantWarmupScheduler
 
 
@@ -122,7 +122,7 @@ class PromptLRN(nn.Module):
         prompt_prefix = " ".join(['V']*ctx_len)
         classnames = [name.replace("_", " ") for name in self.labels]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        self.prompts_tokenized = clip.tokenize(prompts).to(self.device)
+        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts])
         with torch.no_grad():
             embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype)
         
@@ -139,7 +139,9 @@ class PromptLRN(nn.Module):
         # create continuous prompt
         prompt = torch.cat([prefix.to(self.device), context.to(self.device), suffix.to(self.device)], dim=1) # n_cls x 77 x h_dim
         img_f = self.img_enc(pixel_values.type(self.dtype).contiguous())
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
         text_f = self.text_enc(prompt.type(self.dtype).contiguous().to(self.device), self.prompts_tokenized)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) # batch_size, n_cls
         return logits
 
@@ -277,9 +279,11 @@ class MetaNet(nn.Module):
     def forward(self, pixel_values):
         with torch.no_grad():
             x = self.feature_extractor(pixel_values).logits
+            x = (x-x.mean(dim=1).unsqueeze(1))/x.std(dim=1).unsqueeze(1) * 0.02
         x = self.meta_linear_1(x)
         x = self.relu(x)
-        return self.meta_linear_2(x)
+        x = self.meta_linear_2(x)
+        return x
 
 class VTMetaPromptLRN(nn.Module):
     def __init__(self, labels, cfg, device):
@@ -335,15 +339,15 @@ class VTMetaPromptLRN(nn.Module):
         ## tokenize "prompt_prefix + [class]"
         prompt_prefix = " ".join(['V']*self.ctx_len)
         classnames = [name.replace("_", " ") for name in self.labels]
+        print('# labels for training : {}'.format(len(classnames)))
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        self.prompts_tokenized = clip.tokenize(prompts).to(self.device)
+        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts])
         with torch.no_grad():
             embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype)
         
         ## extract [SOS] word embedding & [CLASS],[EOS] word embedding
         self.sos_emb = embedding[:,:1,:] # n_cls x 1 x h_dim
         self.class_emb = embedding[:, 1+self.ctx_len:, :] # n_cls x * x h_dim
-        
 
     def forward(self, img):
         pixel_values = self.transforms_clip(img).to(self.device)
@@ -355,7 +359,6 @@ class VTMetaPromptLRN(nn.Module):
         prefix = self.sos_emb
         suffix = self.class_emb
         prompt = torch.cat([prefix.to(self.device), context.to(self.device), suffix.to(self.device)], dim=1)       
-        text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized)
 
         # extract visual prompt using meta network
         v_prompt = self.meta_net(pixel_values_meta)
@@ -368,16 +371,21 @@ class VTMetaPromptLRN(nn.Module):
         # concatenating visual prompt / adding visual prompt
         x = torch.cat([self.cls_embedding.repeat(batch_size,1,1).type(self.dtype), x], dim=1) # 16 (batch_size, 50, h_dim)
         x = x + self.pos_embedding.type(self.dtype) # (N,L,D) 
-        visual_prompt = x + v_prompt
-        # visual_prompt = torch.cat([x[:,:1,:], v_prompt, x[:,1:,:]], dim=1) 
+        #visual_prompt = x + v_prompt
+        visual_prompt = torch.cat([x[:,:1,:], v_prompt, x[:,1:,:]], dim=1) 
+        text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized)
         img_f = self.img_enc(visual_prompt)
+
+        # normalize features 
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) 
         return logits
 
 
 # Prompt Optmizer : Trainer
 class PromptOptim(object):
-    def __init__(self, cfg, device, dataset = None, kshot = None, type = 'text', start_epoch = 0, val = False):
+    def __init__(self, cfg, device, dataset = None, kshot = None, type = 'text', start_epoch = 0, val = False, only_base = True):
         super(PromptOptim, self).__init__()
         
         # set configuration
@@ -389,18 +397,38 @@ class PromptOptim(object):
         self.device = device
         self.val = val
         # set dataloader
-        self.dataloader = torch.utils.data.DataLoader(Dataset(dataset=dataset,
-                                                            k_shot=kshot),
-                                                    batch_size = self.cfg.train.batch_size, 
-                                                    shuffle = True)
+        if only_base:
+            self.dataloader = torch.utils.data.DataLoader(UnseenDataset(dataset=dataset,
+                                                                        k_shot=kshot,
+                                                                        train='train',
+                                                                        train_time='base'),
+                                                                batch_size = self.cfg.train.batch_size,
+                                                                shuffle = True)
+        else:
+            self.dataloader = torch.utils.data.DataLoader(UnseenDataset(dataset=dataset,
+                                                                    k_shot=kshot,
+                                                                    train='train',
+                                                                    train_time='entire'),
+                                                                batch_size = self.cfg.train.batch_size, 
+                                                                shuffle = True)
     
         # define model
-        if type == 'text':
-            self.model = PromptLRN(self.dataloader.dataset.labels, cfg, device)
-        elif type == 'text+vision':
-            self.model = VTPromptLRN(self.dataloader.dataset.labels, cfg, device)
-        elif type == 'text+vision_metanet':
-            self.model = VTMetaPromptLRN(self.dataloader.dataset.labels, cfg, device)
+        # if want to train with only base classes
+        if only_base:
+            if type == 'text':
+                self.model = PromptLRN(self.dataloader.dataset.base_labels, cfg, device)
+            elif type == 'text+vision':
+                self.model = VTPromptLRN(self.dataloader.dataset.base_labels, cfg, device)
+            elif type == 'text+vision_metanet':
+                self.model = VTMetaPromptLRN(self.dataloader.dataset.base_labels, cfg, device)
+        # if want to train with entire classes
+        else:
+            if type == 'text':
+                self.model = PromptLRN(self.dataloader.dataset.labels, cfg, device)
+            elif type == 'text+vision':
+                self.model = VTPromptLRN(self.dataloader.dataset.labels, cfg, device)
+            elif type == 'text+vision_metanet':
+                self.model = VTMetaPromptLRN(self.dataloader.dataset.labels, cfg, device)
         self.model.to(device)
 
         if self.device == torch.device('cpu'):
@@ -417,9 +445,9 @@ class PromptOptim(object):
         self.lr_sched = ConstantWarmupScheduler(self.optimizer, scheduler, self.cfg.train.warmup_epoch, self.cfg.train.base_lr)
         # load pretrained model / optimizer / lr_scheduler
         if start_epoch > 5:
-            self.model.load_state_dict(torch.load('ckpt/promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
-            self.optimizer.load_state_dict(torch.load('ckpt/promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
-            self.lr_sched.load_state_dict(torch.load('ckpt/promptlearn_{}/{}_shot/lr_sched_epoch{}.pt'.format(self.type, self.kshot, self.start_epoch)))
+            self.model.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
+            self.optimizer.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
+            self.lr_sched.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/lr_sched_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
 
         # set loss function
         self.criterion = nn.CrossEntropyLoss()
@@ -450,7 +478,7 @@ class PromptOptim(object):
                 print('| {} / {} | train loss : {}'.format(step+1, len(self.dataloader), epoch_loss/(step+1)))
     
             # save checkpoint
-            if (epoch+1)%50 == 0:
+            if (epoch+1)%10 == 0:
                 if self.val:
                     val_acc(self.model, self.device, self.dataset, 1)
                 if not os.path.exists('./ckpt/{}_promptlearn_{}/{}_shot/'.format(self.dataset, self.type, self.kshot)):
