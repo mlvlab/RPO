@@ -254,6 +254,9 @@ class VTPromptLRN(nn.Module):
         
         v_prompt = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,1:,:]], dim=1) 
         img_f = self.img_enc(v_prompt)
+        
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) 
         return logits
 
@@ -480,7 +483,7 @@ class PromptOptim(object):
                 print('| {} / {} | train loss : {}'.format(step+1, len(self.dataloader), epoch_loss/(step+1)))
     
             # save checkpoint
-            if (epoch+1)%10 == 0:
+            if (epoch+1)%20 == 0:
                 if self.val:
                     val_acc(self.model, self.device, self.dataset, 1)
                 if not os.path.exists('./ckpt/{}_promptlearn_{}/{}_shot/'.format(self.dataset, self.type, self.kshot)):
