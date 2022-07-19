@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 import argparse
 
 from model import PromptLRN, VTPromptLRN, VTMetaPromptLRN
-from dataset import Dataset, UnseenDataset
+from dataset import UnseenDataset
 from config import cfg
 
 def top_k_acc(pred, y, top_k=1):
@@ -58,11 +58,11 @@ if __name__ == '__main__':
 
     # set evaluation dataloader 
     if args.division == 'entire':
-        testset = UnseenDataset(args.dataset, args.kshot, train='test', test_time='entire')
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='entire')
     elif args.division == 'base':
-        testset = UnseenDataset(args.dataset, args.kshot, train='test', test_time='base')
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='base')
     elif args.division == 'novel':
-        testset = UnseenDataset(args.dataset, args.kshot, train='test', test_time='novel')
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel')
     testloader = DataLoader(testset, batch_size=100)
     
     # set model 
@@ -94,7 +94,8 @@ if __name__ == '__main__':
             model = VTMetaPromptLRN(testset.labels, cfg, device)
     
     # load trained 
-    state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch))
+    state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch),
+                            map_location=device)
     model.load_state_dict(state_dict())
     if device == torch.device('cpu'):
         model = model.type(torch.float32)

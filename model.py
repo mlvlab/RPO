@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import OneCycleLR, CyclicLR, _LRScheduler
 
 import clip
 
-from dataset import Dataset, UnseenDataset
+from dataset import UnseenDataset
 from lr_scheduler import ConstantWarmupScheduler
 
 
@@ -65,10 +65,10 @@ class TextEncoder(nn.Module):
         self.text_proj = clipmodel.text_projection
 
         # set dtype
-        if device == torch.device('cpu'):
-            self.dtype = torch.float32
-        else:
-            self.dtype = torch.float16
+        #if device == torch.device('cpu'):
+        self.dtype = torch.float32
+        #else:
+        #    self.dtype = torch.float16
     
     def forward(self, prompt, token_id):
         '''
@@ -97,17 +97,17 @@ class PromptLRN(nn.Module):
                                      T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                                     ])
         clipmodel, _ = clip.load(cfg.model.backbone, device=device)
-        self.dtype = clipmodel.dtype
+        self.dtype = torch.float32
         self.token_embedding = clipmodel.token_embedding
         self.img_enc = clipmodel.visual
         self.text_enc = TextEncoder(cfg, device)
         self.logit_scale = clipmodel.logit_scale
         self.construct_prompt()
         # set device
-        if self.device == torch.device('cpu'):
-            self.dtype = torch.float32
-        else:
-            self.dtype = torch.float16
+        #if self.device == torch.device('cpu'):
+        #    self.dtype = torch.float32
+        #else:
+        #    self.dtype = torch.float32
         del clipmodel
 
     def construct_prompt(self):
@@ -122,7 +122,7 @@ class PromptLRN(nn.Module):
         prompt_prefix = " ".join(['V']*ctx_len)
         classnames = [name.replace("_", " ") for name in self.labels]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts])
+        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
         with torch.no_grad():
             embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype)
         
@@ -156,10 +156,10 @@ class VisualEncoder(nn.Module):
         self.post_ln = clipmodel.visual.ln_post
         self.vision_proj = clipmodel.visual.proj
 
-        if device == torch.device('cpu'):
-            self.dtype = torch.float32
-        else:
-            self.dtype = torch.float16
+        #if device == torch.device('cpu'):
+        self.dtype = torch.float32
+        #else:
+        #   self.dtype = torch.float16
     def forward(self, prompt):
         '''
         prompt : torch.FloatTensor shape of (N, 50+n_ctx, 512)
@@ -298,16 +298,15 @@ class VTMetaPromptLRN(nn.Module):
                                      T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                                     ])
         self.transforms_meta = T.Compose([
-                                     T.Resize((299,299)),
                                      T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                                     ])
         clipmodel, _ = clip.load(cfg.model.backbone, device=device)
 
         # set device
-        if self.device == torch.device('cpu'):
-            self.dtype = torch.float32
-        else:
-            self.dtype = torch.float16
+        #if self.device == torch.device('cpu'):
+        self.dtype = torch.float32
+        #else:
+        #    self.dtype = torch.float16
 
         # meta network for visual prompt generation
         self.meta_net = MetaNet(cfg)
@@ -339,9 +338,8 @@ class VTMetaPromptLRN(nn.Module):
         ## tokenize "prompt_prefix + [class]"
         prompt_prefix = " ".join(['V']*self.ctx_len)
         classnames = [name.replace("_", " ") for name in self.labels]
-        print('# labels for training : {}'.format(len(classnames)))
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts])
+        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
         with torch.no_grad():
             embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype)
         
@@ -365,7 +363,7 @@ class VTMetaPromptLRN(nn.Module):
         v_prompt = v_prompt.unsqueeze(1) # (*, 1, v_h_dim)
 
         # forward propagate image features
-        x = self.patch_embedding(pixel_values) # (batch_size, h_dim, 7, 7)
+        x = self.patch_embedding(pixel_values.type(self.dtype)) # (batch_size, h_dim, 7, 7)
         x = x.reshape(x.shape[0], x.shape[1], -1).permute(0,2,1) # (batch_size, 49, h_dim)
         
         # concatenating visual prompt / adding visual prompt
@@ -399,6 +397,7 @@ class PromptOptim(object):
         # set dataloader
         if only_base:
             self.dataloader = torch.utils.data.DataLoader(UnseenDataset(dataset=dataset,
+                                                                        base_label_ratio=self.cfg.train.base_label_ratio,
                                                                         k_shot=kshot,
                                                                         train='train',
                                                                         train_time='base'),
@@ -406,6 +405,7 @@ class PromptOptim(object):
                                                                 shuffle = True)
         else:
             self.dataloader = torch.utils.data.DataLoader(UnseenDataset(dataset=dataset,
+                                                                    base_label_ratio=self.cfg.train.base_label_ratio,
                                                                     k_shot=kshot,
                                                                     train='train',
                                                                     train_time='entire'),
@@ -431,8 +431,8 @@ class PromptOptim(object):
                 self.model = VTMetaPromptLRN(self.dataloader.dataset.labels, cfg, device)
         self.model.to(device)
 
-        if self.device == torch.device('cpu'):
-            self.model = self.model.type(torch.float32)
+        #if self.device == torch.device('cpu'):
+        self.model = self.model.type(torch.float32)
         # freeze weight
         for n, param in self.model.named_parameters():
             if ('meta_net.meta_linear' not in n) and ('prompt' not in n):
@@ -445,9 +445,9 @@ class PromptOptim(object):
         self.lr_sched = ConstantWarmupScheduler(self.optimizer, scheduler, self.cfg.train.warmup_epoch, self.cfg.train.base_lr)
         # load pretrained model / optimizer / lr_scheduler
         if start_epoch > 5:
-            self.model.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
-            self.optimizer.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
-            self.lr_sched.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/lr_sched_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
+            self.model.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch))())
+            # self.optimizer.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch)))
+            self.lr_sched.load_state_dict(torch.load('ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, self.start_epoch))())
 
         # set loss function
         self.criterion = nn.CrossEntropyLoss()
@@ -458,6 +458,7 @@ class PromptOptim(object):
             if param.requires_grad:
                 trainable.append(n)
         print('trainable params : {}'.format(trainable))
+        print('# labels for training : {}'.format(len(self.model.labels)))
 
     def train(self):
         history = []
@@ -485,5 +486,5 @@ class PromptOptim(object):
                     os.makedirs('./ckpt/{}_promptlearn_{}/{}_shot/'.format(self.dataset, self.type, self.kshot))
                 torch.save(self.model.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1))
                 torch.save(self.optimizer.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1))
-                torch.save(self.lr_sched.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1)) 
+                torch.save(self.lr_sched.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/lrsched_epoch{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1)) 
                 print('checkpoint saved')
