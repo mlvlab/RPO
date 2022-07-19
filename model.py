@@ -469,6 +469,7 @@ class PromptOptim(object):
             for step, (img, label) in enumerate(self.dataloader):
                 logits = self.model(img) # (batch_size, n_cls)
                 loss = self.criterion(logits, label.to(self.device))
+                self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
                 self.lr_sched.step()
