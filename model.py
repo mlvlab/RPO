@@ -38,7 +38,7 @@ def val_acc(model, device, dataset, topk):
     device = torch.device(device)
 
     # set model and evaluation dataloader 
-    valset = Dataset(dataset, train='val')
+    valset = UnseenDataset(dataset, train='val')
     valloader = DataLoader(valset, batch_size=100)
     model.eval().to(device)
     ys = torch.tensor(valset.df.labels.values)
