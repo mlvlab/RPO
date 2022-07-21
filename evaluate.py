@@ -47,6 +47,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, required = True, default='cpu')
     parser.add_argument('--dataset', type=str, required=True, help='dataset name')
     parser.add_argument('--epoch', type=int, required = True, default=100)
+    parser.add_argument('--layer', default = None, type=int, help = 'layer to feed in visual prompt')
     parser.add_argument('--type', type=str, required=True, default='text')
     parser.add_argument('--division', type=str, required=True, default='entire')
     parser.add_argument('--kshot', type=int, required=True)
@@ -71,27 +72,27 @@ if __name__ == '__main__':
         if args.type == 'text':
             model = PromptLRN(testset.novel_labels, cfg, device)
         elif args.type == 'text+vision':
-            model = VTPromptLRN(testset.novel_labels, cfg, device)
+            model = VTPromptLRN(testset.novel_labels, cfg, device, args.layer)
         elif args.type == 'text+vision_metanet':
-            model = VTMetaPromptLRN(testset.novel_labels, cfg, device)
+            model = VTMetaPromptLRN(testset.novel_labels, cfg, device, args.layer)
     
     # evaluate with base classes(classes used for training)
     elif args.division == 'base':
         if args.type == 'text':
             model = PromptLRN(testset.base_labels, cfg, device)
         elif args.type == 'text+vision':
-            model = VTPromptLRN(testset.base_labels, cfg, device)
+            model = VTPromptLRN(testset.base_labels, cfg, device, args.layer)
         elif args.type == 'text+vision_metanet':
-            model = VTMetaPromptLRN(testset.base_labels, cfg, device)
+            model = VTMetaPromptLRN(testset.base_labels, cfg, device, args.layer)
 
     # evaluate with entire classes(trained with entire classes)
     elif args.division == 'entire':
         if args.type == 'text':
             model = PromptLRN(testset.labels, cfg, device)
         elif args.type == 'text+vision':
-            model = VTPromptLRN(testset.labels, cfg, device)
+            model = VTPromptLRN(testset.labels, cfg, device, args.layer)
         elif args.type == 'text+vision_metanet':
-            model = VTMetaPromptLRN(testset.labels, cfg, device)
+            model = VTMetaPromptLRN(testset.labels, cfg, device, args.layer)
     
     # load trained 
     state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch),
@@ -114,6 +115,7 @@ if __name__ == '__main__':
         print(len(testloader))
         for step, pixel in enumerate(testloader):
             logits = model(pixel.type(torch.float32))
+            logits = logits.to(torch.device('cpu'))
             pred = torch.topk(logits, k=args.topk, dim=1).indices
             preds = torch.cat([preds, pred], dim=0)
             if (step+1) % 10:

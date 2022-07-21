@@ -137,7 +137,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
 
     if not jit:
         model = build_model(state_dict or model.state_dict()).to(device)
-        if str(device) == "cpu":
+        if str(device) == "cpu" or 'mps': ################ gpu modification
             model.float()
         return model, _transform(model.visual.input_resolution)
 
@@ -164,7 +164,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
     patch_device(model.encode_text)
 
     # patch dtype to float32 on CPU
-    if str(device) == "cpu":
+    if str(device) == "cpu" or 'mps':
         float_holder = torch.jit.trace(lambda: torch.ones([]).float(), example_inputs=[])
         float_input = list(float_holder.graph.findNode("aten::to").inputs())[1]
         float_node = float_input.node()

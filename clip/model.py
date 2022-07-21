@@ -233,7 +233,8 @@ class VisionTransformer(nn.Module):
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
-        x = self.ln_post(x[:, 0, :])
+        x = x.to(torch.device('cpu')) #############################################
+        x = self.ln_post(x[:, 0, :].to(torch.device('mps')))
 
         if self.proj is not None:
             x = x @ self.proj

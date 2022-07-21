@@ -10,6 +10,7 @@ cfg.model.v_ctx_len = 1
 cfg.model.h_dim = 512
 cfg.model.t_h_dim = 512
 cfg.model.v_h_dim = 768
+cfg.model.prompt_layer = 0
 
 cfg.train = edict()
 cfg.train.device = 'mps'
