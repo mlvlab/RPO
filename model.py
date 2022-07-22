@@ -281,7 +281,7 @@ class VTPromptLRN(nn.Module):
         ## initialize visual prompt embedding
         v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.v_h_dim, dtype=self.dtype)
         nn.init.normal_(v_prompt_vec, std=0.02)
-        self.v_prompt_emb = nn.Parameter(v_prompt_vec, requires_grad=True).to(self.device) ######################
+        self.v_prompt_emb = nn.Parameter(v_prompt_vec, requires_grad=True) ######################
 
     def forward(self, img):
         pixel_values = self.transforms_clip(img).to(self.device)
@@ -300,11 +300,11 @@ class VTPromptLRN(nn.Module):
         x = x + self.pos_embedding.type(self.dtype) # (N,L,D) 
         if self.L is None:
             # visual prompt in input layer
-            x = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1), x[:,1:,:]], dim=1) 
+            x = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1).to(self.device), x[:,1:,:]], dim=1) 
             img_f = self.img_enc(x)
         else:
             # visual prompt in intermediate layer
-            v_prompt = self.v_prompt_emb.repeat(batch_size, 1,1)
+            v_prompt = self.v_prompt_emb.repeat(batch_size, 1,1).to(self.device)
             img_f = self.img_enc(x, v_prompt)
 
         img_f = img_f / img_f.norm(dim=-1, keepdim=True)
