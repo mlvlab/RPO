@@ -1,3 +1,4 @@
+import random
 from model import PromptOptim
 from config import cfg
 import argparse
@@ -8,6 +9,10 @@ import pandas as pd
 if __name__ == '__main__':
     torch.manual_seed(2022)
     np.random.seed(2022)
+    torch.cuda.manual_seed(2022)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', required=True, type=str, help = 'cpu, gpu, cuda...')
     parser.add_argument('--dataset', required=True, help='dataset name', type=str)

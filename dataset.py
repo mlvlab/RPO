@@ -38,6 +38,23 @@ class UnseenDataset(data.Dataset):
                 else:
                     img_dir += map(lambda x: os.path.join(img_path, c)+'/'+x, os.listdir(os.path.join(img_path, c)))
             labels = list(map(lambda x: x.split('/')[-2], img_dir))
+            ####################################
+            '''
+            mapping = {
+                        "AnnualCrop": "Annual Crop Land",
+                        "Forest": "Forest",
+                        "HerbaceousVegetation": "Herbaceous Vegetation Land",
+                        "Highway": "Highway or Road",
+                        "Industrial": "Industrial Buildings",
+                        "Pasture": "Pasture Land",
+                        "PermanentCrop": "Permanent Crop Land",
+                        "Residential": "Residential Buildings",
+                        "River": "River",
+                        "SeaLake": "Sea or Lake",
+                    }
+            labels = [mapping[n] for n in labels]
+            '''
+            ####################################
             self.labels = list(np.unique(labels))
             labels_idx = list(map(lambda x: self.labels.index(x), labels))
             df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx})

@@ -78,10 +78,11 @@ class TextEncoder(nn.Module):
         '''
         x = prompt + self.pos_embedding.type(self.dtype)
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformers(x.contiguous())
-        x = x.permute(1, 0, 2) # LND -> NLD
-        x = x.contiguous() ################ 수정
+        x = self.transformers(x)
+        x = x.permute(1, 0, 2) # LND -> NLD ################ 수정
         x = self.ln_final(x).type(self.dtype)
+
+        #x = x[torch.arange(x.shape[0]), token_id.argmax(dim=-1)]
 
         ######## 수정
         x = x.to(torch.device('cpu'))
@@ -324,11 +325,13 @@ class Identity(nn.Module):
 class MetaNet(nn.Module):
     def __init__(self, cfg):
         super(MetaNet, self).__init__()
-        self.feature_extractor = torchvision.models.inception_v3(pretrained=True)
+        self.feature_extractor = torchvision.models.inception_v3(weights=True)
         self.feature_extractor.dropout = Identity()
         self.feature_extractor.fc = Identity()
+        torch.manual_seed(2022)
         self.meta_linear_1 = nn.Linear(2048, 1024)
         self.relu = nn.ReLU(inplace=True)
+        torch.manual_seed(2022)
         self.meta_linear_2 = nn.Linear(1024, cfg.model.v_h_dim)
     
     def forward(self, pixel_values):
@@ -365,6 +368,7 @@ class VTMetaPromptLRN(nn.Module):
         #    self.dtype = torch.float16
 
         # meta network for visual prompt generation
+        torch.manual_seed(2022)
         self.meta_net = MetaNet(cfg).to(self.device) ############### 수정
 
         # text encoder
@@ -391,6 +395,7 @@ class VTMetaPromptLRN(nn.Module):
         # text prompt embedding
         ## initialize prompt embedding
         prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.dtype, device=self.device)
+        torch.manual_seed(2022)
         nn.init.normal_(prompt_vec, std=0.02)
         self.prompt_emb = nn.Parameter(prompt_vec)
 
@@ -531,6 +536,7 @@ class PromptOptim(object):
             epoch_loss = 0
             print('current lr : {}'.format(self.lr_sched.get_lr()[0]))
             for step, (img, label) in enumerate(self.dataloader):
+                #print(self.model.meta_net.meta_linear_1.weight)
                 logits = self.model(img) # (batch_size, n_cls)
                 loss = self.criterion(logits, label.to(self.device))
                 self.optimizer.zero_grad()
