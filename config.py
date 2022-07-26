@@ -14,7 +14,7 @@ cfg.model.prompt_layer = 0
 
 cfg.train = edict()
 cfg.train.device = 'mps'
-cfg.train.base_label_ratio = 0.7
+cfg.train.base_label_ratio = 0.5
 cfg.train.n_epochs = 200
 cfg.train.batch_size = 32
 cfg.train.k_shot = 16

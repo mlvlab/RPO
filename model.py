@@ -78,11 +78,10 @@ class TextEncoder(nn.Module):
         '''
         x = prompt + self.pos_embedding.type(self.dtype)
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformers(x)
-        x = x.permute(1, 0, 2) # LND -> NLD ################ 수정
+        x = self.transformers(x.contiguous())
+        x = x.permute(1, 0, 2) # LND -> NLD
+        x = x.contiguous() ################ 수정
         x = self.ln_final(x).type(self.dtype)
-
-        #x = x[torch.arange(x.shape[0]), token_id.argmax(dim=-1)]
 
         ######## 수정
         x = x.to(torch.device('cpu'))
@@ -94,9 +93,9 @@ class TextEncoder(nn.Module):
         return x
 
 
-class PromptLRN(nn.Module):
+class CoOp(nn.Module):
     def __init__(self, labels, cfg, device):
-        super(PromptLRN, self).__init__()
+        super(CoOp, self).__init__()
         self.cfg = cfg
         self.labels = labels
         self.device = device
@@ -145,7 +144,7 @@ class PromptLRN(nn.Module):
         context = self.prompt_emb.repeat(self.n_cls, 1,1)
         prefix = self.sos_emb
         suffix = self.class_emb
-
+        
         # create continuous prompt
         prompt = torch.cat([prefix, context.to(self.device), suffix], dim=1) # n_cls x 77 x h_dim
         img_f = self.img_enc(pixel_values.type(self.dtype).contiguous())
@@ -154,6 +153,76 @@ class PromptLRN(nn.Module):
         text_f = text_f / text_f.norm(dim=-1, keepdim=True)
         logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) # batch_size, n_cls
         return logits
+
+
+class CoCoOp(nn.Module):
+    def __init__(self, labels, cfg, device):
+        super(CoCoOp, self).__init__()
+        self.cfg = cfg
+        self.labels = labels
+        self.device = device
+        self.n_cls = len(labels)
+        # transformation pipeline
+        self.transforms_clip = T.Compose([
+                                     T.Resize((224,224)),
+                                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                                    ])
+        clipmodel, _ = clip.load(cfg.model.backbone, device=device)
+        self.dtype = torch.float32
+        self.token_embedding = clipmodel.token_embedding
+        self.img_enc = clipmodel.visual
+        self.text_enc = TextEncoder(cfg, device)
+        self.meta_net = nn.Sequential(OrderedDict([
+            ("linear1", nn.Linear(cfg.model.h_dim, cfg.model.h_dim // 16)),
+            ("relu", nn.ReLU(inplace=True)),
+            ("linear2", nn.Linear(cfg.model.h_dim // 16, _dim))
+        ]))
+        self.logit_scale = clipmodel.logit_scale
+        self.construct_prompt()
+        # set device
+        #if self.device == torch.device('cpu'):
+        #    self.dtype = torch.float32
+        #else:
+        #    self.dtype = torch.float32
+        del clipmodel
+
+    def construct_prompt(self):
+        ctx_len = self.cfg.model.ctx_len
+
+        # initialize prompt embedding
+        prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.dtype)
+        nn.init.normal_(prompt_vec, std=0.02)
+        self.prompt_emb = nn.Parameter(prompt_vec)
+
+        # tokenize "prompt_prefix + [class]"
+        prompt_prefix = " ".join(['V']*ctx_len)
+        classnames = [name.replace("_", " ") for name in self.labels]
+        prompts = [prompt_prefix + " " + name + "." for name in classnames]
+        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+        with torch.no_grad():
+            embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype)
+        
+        # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+        self.sos_emb = embedding[:,:1,:] # n_cls x 1 x h_dim
+        self.class_emb = embedding[:, 1+ctx_len:, :] # n_cls x * x h_dim
+
+    def forward(self, img):
+        pixel_values = self.transforms_clip(img).to(self.device)
+        context = self.prompt_emb.repeat(self.n_cls, 1,1)
+        prefix = self.sos_emb
+        suffix = self.class_emb
+
+        img_f = self.img_enc(pixel_values.type(self.dtype).contiguous())
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
+
+        # create continuous prompt
+        cond_context = context + img_f
+        cond_prompt = torch.cat([prefix, cond_context.to(self.device), suffix], dim=1) # n_cls x 77 x h_dim
+        text_f = self.text_enc(cond_prompt.type(self.dtype), self.prompts_tokenized)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True)
+        logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) # batch_size, n_cls
+        return logits
+
 
 
 # text prompt + visual prompt learning
@@ -216,9 +285,9 @@ class VisualEncoder_int(nn.Module):
         return x
 
 
-class VTPromptLRN(nn.Module):
+class VisualCoOp(nn.Module):
     def __init__(self, labels, cfg, device, L = None):
-        super(VTPromptLRN, self).__init__()
+        super(VisualCoOp, self).__init__()
         self.cfg = cfg
         self.labels = labels
         self.device = device
@@ -325,13 +394,11 @@ class Identity(nn.Module):
 class MetaNet(nn.Module):
     def __init__(self, cfg):
         super(MetaNet, self).__init__()
-        self.feature_extractor = torchvision.models.inception_v3(weights=True)
+        self.feature_extractor = torchvision.models.inception_v3(pretrained=True)
         self.feature_extractor.dropout = Identity()
         self.feature_extractor.fc = Identity()
-        torch.manual_seed(2022)
         self.meta_linear_1 = nn.Linear(2048, 1024)
         self.relu = nn.ReLU(inplace=True)
-        torch.manual_seed(2022)
         self.meta_linear_2 = nn.Linear(1024, cfg.model.v_h_dim)
     
     def forward(self, pixel_values):
@@ -343,9 +410,9 @@ class MetaNet(nn.Module):
         x = self.meta_linear_2(x)
         return x
 
-class VTMetaPromptLRN(nn.Module):
+class VisualCoCoOp(nn.Module):
     def __init__(self, labels, cfg, device, L=None):
-        super(VTMetaPromptLRN, self).__init__()
+        super(VisualCoCoOp, self).__init__()
         self.cfg = cfg
         self.labels = labels
         self.device = device
@@ -368,7 +435,6 @@ class VTMetaPromptLRN(nn.Module):
         #    self.dtype = torch.float16
 
         # meta network for visual prompt generation
-        torch.manual_seed(2022)
         self.meta_net = MetaNet(cfg).to(self.device) ############### 수정
 
         # text encoder
@@ -395,7 +461,6 @@ class VTMetaPromptLRN(nn.Module):
         # text prompt embedding
         ## initialize prompt embedding
         prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.dtype, device=self.device)
-        torch.manual_seed(2022)
         nn.init.normal_(prompt_vec, std=0.02)
         self.prompt_emb = nn.Parameter(prompt_vec)
 
@@ -483,28 +548,31 @@ class PromptOptim(object):
         # define model
         # if want to train with only base classes
         if only_base:
-            if type == 'text':
-                self.model = PromptLRN(self.dataloader.dataset.base_labels, cfg, device)
-            elif type == 'text+vision':
-                print(L)
-                self.model = VTPromptLRN(self.dataloader.dataset.base_labels, cfg, device, L)
-            elif type == 'text+vision_metanet':
-                self.model = VTMetaPromptLRN(self.dataloader.dataset.base_labels, cfg, device, L)
+            if type == 'coop':
+                self.model = CoOp(self.dataloader.dataset.base_labels, cfg, device)
+            elif type == 'cocoop':
+                self.model = CoCoOp(self.dataloader.dataset.base_labels, cfg, device)
+            elif type == 'visualcoop':
+                self.model = VisualCoOp(self.dataloader.dataset.base_labels, cfg, device, L)
+            elif type == 'visualcocoop':
+                self.model = VisualCoCoOp(self.dataloader.dataset.base_labels, cfg, device, L)
         # if want to train with entire classes
         else:
-            if type == 'text':
-                self.model = PromptLRN(self.dataloader.dataset.labels, cfg, device)
-            elif type == 'text+vision':
-                self.model = VTPromptLRN(self.dataloader.dataset.labels, cfg, device, L)
-            elif type == 'text+vision_metanet':
-                self.model = VTMetaPromptLRN(self.dataloader.dataset.labels, cfg, device, L)
+            if type == 'coop':
+                self.model = CoOp(self.dataloader.dataset.labels, cfg, device)
+            elif type == 'cocoop':
+                self.model = CoCoOp(self.dataloader.dataset.labels, cfg, device)
+            elif type == 'visualcoop':
+                self.model = VisualCoOp(self.dataloader.dataset.labels, cfg, device, L)
+            elif type == 'visualcocoop':
+                self.model = VisualCoCoOp(self.dataloader.dataset.labels, cfg, device, L)
         self.model.to(device)
 
         #if self.device == torch.device('cpu'):
         self.model = self.model.type(torch.float32)
         # freeze weight
         for n, param in self.model.named_parameters():
-            if ('meta_net.meta_linear' not in n) and ('prompt' not in n):
+            if ('meta_net' not in n) and ('prompt' not in n):
                 param.requires_grad = False
 
         # set optimizer & lr scheduler
@@ -536,7 +604,6 @@ class PromptOptim(object):
             epoch_loss = 0
             print('current lr : {}'.format(self.lr_sched.get_lr()[0]))
             for step, (img, label) in enumerate(self.dataloader):
-                #print(self.model.meta_net.meta_linear_1.weight)
                 logits = self.model(img) # (batch_size, n_cls)
                 loss = self.criterion(logits, label.to(self.device))
                 self.optimizer.zero_grad()
@@ -550,7 +617,7 @@ class PromptOptim(object):
                 print('| {} / {} | train loss : {}'.format(step+1, len(self.dataloader), epoch_loss/(step+1)))
     
             # save checkpoint
-            if (epoch+1)%50 == 0:
+            if (epoch+1)%200 == 0:
                 if self.val:
                     val_acc(self.model, self.device, self.dataset, 1)
                 if not os.path.exists('./ckpt/{}_promptlearn_{}/{}_shot/'.format(self.dataset, self.type, self.kshot)):

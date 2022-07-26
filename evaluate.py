@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from model import PromptLRN, VTPromptLRN, VTMetaPromptLRN
+from model import CoOp, CoCoOp, VisualCoOp, VisualCoCoOp
 from dataset import UnseenDataset
 from config import cfg
 
@@ -69,30 +69,36 @@ if __name__ == '__main__':
     # set model 
     # evaluate with novel classes
     if args.division == 'novel':
-        if args.type == 'text':
-            model = PromptLRN(testset.novel_labels, cfg, device)
-        elif args.type == 'text+vision':
-            model = VTPromptLRN(testset.novel_labels, cfg, device, args.layer)
-        elif args.type == 'text+vision_metanet':
-            model = VTMetaPromptLRN(testset.novel_labels, cfg, device, args.layer)
+        if args.type == 'coop':
+            model = CoOp(testset.novel_labels, cfg, device)
+        elif args.type == 'cocoop':
+            model = CoCoOp(testset.novel_labels, cfg, device)
+        elif args.type == 'visualcoop':
+            model = VisualCoOp(testset.novel_labels, cfg, device, args.layer)
+        elif args.type == 'visualcocoop':
+            model = VisualCoCoOp(testset.novel_labels, cfg, device, args.layer)
     
     # evaluate with base classes(classes used for training)
     elif args.division == 'base':
-        if args.type == 'text':
-            model = PromptLRN(testset.base_labels, cfg, device)
-        elif args.type == 'text+vision':
-            model = VTPromptLRN(testset.base_labels, cfg, device, args.layer)
-        elif args.type == 'text+vision_metanet':
-            model = VTMetaPromptLRN(testset.base_labels, cfg, device, args.layer)
+        if args.type == 'coop':
+            model = CoOp(testset.base_labels, cfg, device)
+        elif args.type == 'cocoop':
+            model = CoCoOp(testset.base_labels, cfg, device)
+        elif args.type == 'visualcoop':
+            model = VisualCoOp(testset.base_labels, cfg, device, args.layer)
+        elif args.type == 'visualcocoop':
+            model = VisualCoCoOp(testset.base_labels, cfg, device, args.layer)
 
     # evaluate with entire classes(trained with entire classes)
     elif args.division == 'entire':
-        if args.type == 'text':
-            model = PromptLRN(testset.labels, cfg, device)
-        elif args.type == 'text+vision':
-            model = VTPromptLRN(testset.labels, cfg, device, args.layer)
-        elif args.type == 'text+vision_metanet':
-            model = VTMetaPromptLRN(testset.labels, cfg, device, args.layer)
+        if args.type == 'coop':
+            model = CoOp(testset.labels, cfg, device)
+        elif args.type == 'cocoop':
+            model = CoCoOp(testset.labels, cfg, device)
+        elif args.type == 'visualcoop':
+            model = VisualCoOp(testset.labels, cfg, device, args.layer)
+        elif args.type == 'visualcocoop':
+            model = VisualCoCoOp(testset.labels, cfg, device, args.layer)
     
     # load trained 
     state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch),

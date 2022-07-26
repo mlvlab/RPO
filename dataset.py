@@ -1,4 +1,5 @@
 import os
+import json
 import pathlib
 import numpy as np
 import pandas as pd
@@ -31,15 +32,23 @@ class UnseenDataset(data.Dataset):
 
         # EuroSAT
         if dataset == 'eurosat':
-            img_path = './data/eurosat/train'
-            for c in os.listdir(img_path):
-                if c == '.DS_Store':
-                    pass
-                else:
-                    img_dir += map(lambda x: os.path.join(img_path, c)+'/'+x, os.listdir(os.path.join(img_path, c)))
-            labels = list(map(lambda x: x.split('/')[-2], img_dir))
-            ####################################
-            '''
+            train_df = pd.read_csv('data/eurosat/train.csv')
+            train_df.Filename = list(map(lambda x: 'data/eurosat/'+x, train_df.Filename))
+            val_df = pd.read_csv('data/eurosat/validation.csv')
+            val_df.Filename = list(map(lambda x: 'data/eurosat/'+x, val_df.Filename))
+            test_df = pd.read_csv('data/eurosat/test.csv')
+            test_df.Filename = list(map(lambda x: 'data/eurosat/'+x, test_df.Filename))
+            if self.train == 'train':
+                self.df = train_df
+                self.df = self.df.rename(columns={"Filename": "img_dir", "Label" : 'labels'})
+            elif self.train == 'val':
+                self.df = val_df
+                self.df = self.df.rename(columns={"Filename": "img_dir", "Label" : 'labels'})
+            else:
+                self.df = test_df
+                self.df = self.df.rename(columns={"Filename": "img_dir", "Label" : 'labels'})
+            mapping = json.load(open('data/eurosat/label_map.json'))
+            self.labels = list(mapping.keys())
             mapping = {
                         "AnnualCrop": "Annual Crop Land",
                         "Forest": "Forest",
@@ -52,18 +61,8 @@ class UnseenDataset(data.Dataset):
                         "River": "River",
                         "SeaLake": "Sea or Lake",
                     }
-            labels = [mapping[n] for n in labels]
-            '''
-            ####################################
-            self.labels = list(np.unique(labels))
-            labels_idx = list(map(lambda x: self.labels.index(x), labels))
-            df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx})
-            train_df, test_df = train_test_split(df, test_size=0.2, stratify=df.labels, random_state=2022)
-            if self.train == 'train':
-                self.df = train_df
-            else:
-                self.df = test_df
-
+            self.labels = [mapping[n] for n in self.labels]
+        
         # SUN397
         elif dataset == 'sun397':
             img_path = './data/sun397/img'

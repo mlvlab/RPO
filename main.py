@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 
 if __name__ == '__main__':
-    torch.manual_seed(2022)
-    np.random.seed(2022)
-    torch.cuda.manual_seed(2022)
+    torch.manual_seed(2021)
+    np.random.seed(2021)
+    torch.cuda.manual_seed(2021)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
