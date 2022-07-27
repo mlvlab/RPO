@@ -83,11 +83,11 @@ class TextEncoder(nn.Module):
         x = x.contiguous() ################ 수정
         x = self.ln_final(x).type(self.dtype)
 
-        ######## 수정
-        x = x.to(torch.device('cpu'))
-        token_id = token_id.to(torch.device('cpu'))
+        ######## if device==torch.device('mps') -> enable line 87,88,90
+        #x = x.to(torch.device('cpu'))
+        #token_id = token_id.to(torch.device('cpu'))
         x = x[torch.arange(x.shape[0]), token_id.argmax(dim=-1)]
-        x = x.to(self.device)
+        #x = x.to(self.device)
         #########
         x = x @ self.text_proj
         return x
@@ -397,13 +397,14 @@ class MetaNet(nn.Module):
         self.feature_extractor = torchvision.models.inception_v3(pretrained=True)
         self.feature_extractor.dropout = Identity()
         self.feature_extractor.fc = Identity()
+        self.feature_extractor.eval()
         self.meta_linear_1 = nn.Linear(2048, 1024)
         self.relu = nn.ReLU(inplace=True)
         self.meta_linear_2 = nn.Linear(1024, cfg.model.v_h_dim)
     
     def forward(self, pixel_values):
         with torch.no_grad():
-            x = self.feature_extractor(pixel_values).logits
+            x = self.feature_extractor(pixel_values)
             x = (x-x.mean(dim=1).unsqueeze(1))/x.std(dim=1).unsqueeze(1) * 0.02
         x = self.meta_linear_1(x)
         x = self.relu(x)
@@ -533,7 +534,8 @@ class PromptOptim(object):
                                                                         base_label_ratio=self.cfg.train.base_label_ratio,
                                                                         k_shot=kshot,
                                                                         train='train',
-                                                                        train_time='base'),
+                                                                        train_time='base',
+                                                                        device = self.device),
                                                                 batch_size = self.cfg.train.batch_size,
                                                                 shuffle = True)
         else:
@@ -541,7 +543,8 @@ class PromptOptim(object):
                                                                     base_label_ratio=self.cfg.train.base_label_ratio,
                                                                     k_shot=kshot,
                                                                     train='train',
-                                                                    train_time='entire'),
+                                                                    train_time='entire',
+                                                                    device = self.device),
                                                                 batch_size = self.cfg.train.batch_size, 
                                                                 shuffle = True)
     
@@ -572,7 +575,7 @@ class PromptOptim(object):
         self.model = self.model.type(torch.float32)
         # freeze weight
         for n, param in self.model.named_parameters():
-            if ('meta_net' not in n) and ('prompt' not in n):
+            if ('meta_net.meta_linear' not in n) and ('prompt' not in n):
                 param.requires_grad = False
 
         # set optimizer & lr scheduler

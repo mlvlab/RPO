@@ -59,11 +59,11 @@ if __name__ == '__main__':
 
     # set evaluation dataloader 
     if args.division == 'entire':
-        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='entire')
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='entire', device=device)
     elif args.division == 'base':
-        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='base')
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='base', device=device)
     elif args.division == 'novel':
-        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel')
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel', device=device)
     testloader = DataLoader(testset, batch_size=100)
     
     # set model 

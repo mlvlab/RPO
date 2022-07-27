@@ -1,5 +1,4 @@
 import os
-import json
 import pathlib
 import numpy as np
 import pandas as pd
@@ -9,12 +8,13 @@ from sklearn.model_selection import train_test_split
 from torch.utils import data
 import torchvision.transforms as T
 import PIL
+import json
 
 
 
 # for base class training / evaluation (base class or novel class)
 class UnseenDataset(data.Dataset):
-    def __init__(self, dataset, k_shot=None, train='train', base_label_ratio=0.7, train_time=None, test_time=None):
+    def __init__(self, dataset, k_shot=None, train='train', base_label_ratio=0.5, train_time=None, test_time=None, device=torch.device('cpu')):
         '''
         train_time : one of ['entire', 'base']
         test_time : one of ['entire', 'base', 'novel']
@@ -26,43 +26,28 @@ class UnseenDataset(data.Dataset):
         self.train_time = train_time
         self.test_time = test_time
         self.transform = T.Compose([T.Resize((299, 299))])
+        self.device = device
         # create img_dir, text label list
         img_dir = []
         labels = []
 
         # EuroSAT
         if dataset == 'eurosat':
-            train_df = pd.read_csv('data/eurosat/train.csv')
-            train_df.Filename = list(map(lambda x: 'data/eurosat/'+x, train_df.Filename))
-            val_df = pd.read_csv('data/eurosat/validation.csv')
-            val_df.Filename = list(map(lambda x: 'data/eurosat/'+x, val_df.Filename))
-            test_df = pd.read_csv('data/eurosat/test.csv')
-            test_df.Filename = list(map(lambda x: 'data/eurosat/'+x, test_df.Filename))
+            img_path = './data/eurosat/'
+            with open('./data/eurosat/split_zhou_EuroSAT.json') as f:
+                split = json.load(f)
+            
             if self.train == 'train':
-                self.df = train_df
-                self.df = self.df.rename(columns={"Filename": "img_dir", "Label" : 'labels'})
+                train = map(lambda x: ["/".join([img_path, x[0]]), x[1]], split["train"])
+                self.df = pd.DataFrame(train, columns = ['img_dir', 'labels'])
             elif self.train == 'val':
-                self.df = val_df
-                self.df = self.df.rename(columns={"Filename": "img_dir", "Label" : 'labels'})
+                val = map(lambda x: ["/".join([img_path, x[0]]), x[1]], split["val"])
+                self.df = pd.DataFrame(val, columns = ['img_dir', 'labels'])
             else:
-                self.df = test_df
-                self.df = self.df.rename(columns={"Filename": "img_dir", "Label" : 'labels'})
-            mapping = json.load(open('data/eurosat/label_map.json'))
-            self.labels = list(mapping.keys())
-            mapping = {
-                        "AnnualCrop": "Annual Crop Land",
-                        "Forest": "Forest",
-                        "HerbaceousVegetation": "Herbaceous Vegetation Land",
-                        "Highway": "Highway or Road",
-                        "Industrial": "Industrial Buildings",
-                        "Pasture": "Pasture Land",
-                        "PermanentCrop": "Permanent Crop Land",
-                        "Residential": "Residential Buildings",
-                        "River": "River",
-                        "SeaLake": "Sea or Lake",
-                    }
-            self.labels = [mapping[n] for n in self.labels]
-        
+                test = map(lambda x: ["/".join([img_path, x[0]]), x[1]], split["test"])
+                self.df = pd.DataFrame(test, columns = ['img_dir', 'labels'])
+            self.labels = list(np.unique(np.array(split["train"])[:,2]))
+
         # SUN397
         elif dataset == 'sun397':
             img_path = './data/sun397/img'
@@ -100,21 +85,35 @@ class UnseenDataset(data.Dataset):
         # subsampling
         if self.train=='train':
             self.df = self.df.groupby('labels').sample(n=self.k_shot, random_state=2022)
+        if self.train == 'val':
+            self.df = self.df.groupby('labels').sample(n=min(self.k_shot, 4), random_state=2022)
 
+        # load image to cuda at once
+        self.df['image'] = self.df['img_dir'].map(self.dir_to_tensor)
         # divide base classes and novel classes
         self.divide()
-        
+    
+    def dir_to_tensor(self, dir):
+        img = PIL.Image.open(dir)
+        img = T.ToTensor()(img)
+        if img.shape[0] == 1:
+            img = torch.cat([img, img, img], dim=0)
+        elif img.shape[0] == 4:
+            img = img[:3,:,:]
+        img = self.transform(img).to(self.device)
+        return img
+
     def divide(self):
-        # assign 70% of class label as base classes
-        self.base_df = self.df[self.df.labels < (self.df.labels.max()+1)*self.base_label_ratio]
+        # assign base_label_ratio of class label as base classes
+        self.base_df = self.df[self.df.labels < (self.df.labels.max()+1)*self.base_label_ratio].copy()
         label_idx = list(np.unique(self.base_df.labels.values))
         self.base_labels = np.array(self.labels)[label_idx].tolist()
-        self.base_df['labels'] = self.base_df['labels'] - self.base_df['labels'].min()
-        # assign rest 30% of class label as novel classes
-        self.novel_df = self.df[self.df.labels >= (self.df.labels.max()+1)*self.base_label_ratio]
+        self.base_df['labels'] -= self.base_df['labels'].min()
+        # assign rest as novel classes
+        self.novel_df = self.df[self.df.labels >= (self.df.labels.max()+1)*self.base_label_ratio].copy()
         label_idx = list(np.unique(self.novel_df.labels.values))
-        self.novel_labels = np.array(self.labels)[label_idx].tolist()#
-        self.novel_df['labels'] = self.novel_df['labels'] - self.novel_df['labels'].min()
+        self.novel_labels = np.array(self.labels)[label_idx].tolist()
+        self.novel_df['labels'] -= self.novel_df['labels'].min()
 
     def __len__(self):
         if self.train == 'train':
@@ -133,44 +132,14 @@ class UnseenDataset(data.Dataset):
     def __getitem__(self, index):
         if self.train == 'train':
             if self.train_time == 'entire':
-                img = PIL.Image.open(self.df.img_dir.iloc[index])
-                img = T.ToTensor()(img)
-                if img.shape[0] == 1:
-                    img = torch.cat([img, img, img], dim=0)
-                elif img.shape[0] == 4:
-                    img = img[:3,:,:]
-                return self.transform(img), self.df.labels.iloc[index]
+                return self.df.image.iloc[index], self.df.labels.iloc[index]
             elif self.train_time == 'base':
-                img = PIL.Image.open(self.base_df.img_dir.iloc[index])
-                img = T.ToTensor()(img)
-                if img.shape[0] == 1:
-                    img = torch.cat([img, img, img], dim=0)
-                elif img.shape[0] == 4:
-                    img = img[:3,:,:]
-                return self.transform(img), self.base_df.labels.iloc[index]
+                return self.base_df.image.iloc[index], self.base_df.labels.iloc[index]
         
         elif self.train == 'test':
             if self.test_time == 'entire':
-                img = PIL.Image.open(self.df.img_dir.iloc[index])
-                img = T.ToTensor()(img)
-                if img.shape[0] == 1:
-                    img = torch.cat([img, img, img], dim=0)
-                elif img.shape[0] == 4:
-                    img = img[:3,:,:]
-                return self.transform(img)
+                return self.df.image.iloc[index]
             elif self.test_time == 'base':
-                img = PIL.Image.open(self.base_df.img_dir.iloc[index])
-                img = T.ToTensor()(img)
-                if img.shape[0] == 1:
-                    img = torch.cat([img, img, img], dim=0)
-                elif img.shape[0] == 4:
-                    img = img[:3,:,:]
-                return self.transform(img)
+                return self.base_df.image.iloc[index]
             elif self.test_time == 'novel':
-                img = PIL.Image.open(self.novel_df.img_dir.iloc[index])
-                img = T.ToTensor()(img)
-                if img.shape[0] == 1:
-                    img = torch.cat([img, img, img], dim=0)
-                elif img.shape[0] == 4:
-                    img = img[:3,:,:]
-                return self.transform(img)
+                return self.novel_df.image.iloc[index]
