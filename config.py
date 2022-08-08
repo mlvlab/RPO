@@ -5,7 +5,7 @@ cfg = edict()
 
 cfg.model = edict()
 cfg.model.backbone = 'ViT-B/32'
-cfg.model.prefix = 'A photo of a'
+cfg.model.prefix = "A photo of a"
 cfg.model.ctx_len = 4
 cfg.model.v_ctx_len = 1
 cfg.model.h_dim = 512
@@ -15,6 +15,7 @@ cfg.model.prompt_layer = 0
 
 cfg.train = edict()
 cfg.train.device = 'cuda:0'
+cfg.train.train_textprompt = False
 cfg.train.base_label_ratio = 0.5
 cfg.train.n_epochs = 200
 cfg.train.cocoop_epochs = 10
