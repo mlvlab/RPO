@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from model import CoOp, CoCoOp, VisualCoOp, VisualCoCoOp
+from model import CoOp, CoCoOp, VisualCoOp, VisualCoCoOpv2, VisualCoCoOpv1
 from dataset import UnseenDataset
 from config import cfg
 
@@ -52,6 +52,7 @@ if __name__ == '__main__':
     parser.add_argument('--division', type=str, required=True, default='entire')
     parser.add_argument('--kshot', type=int, required=True)
     parser.add_argument('--topk', type=int, required=True, default=1)
+    parser.add_argument('--seed', required=True, type=int)
     args = parser.parse_args()
 
     # set device
@@ -59,49 +60,58 @@ if __name__ == '__main__':
 
     # set evaluation dataloader 
     if args.division == 'entire':
-        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='entire', device=device)
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='entire')
     elif args.division == 'base':
-        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='base', device=device)
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='base')
     elif args.division == 'novel':
-        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel', device=device)
-    testloader = DataLoader(testset, batch_size=100)
+        testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel')
     
+    if args.type == 'cocoop':
+        testloader = DataLoader(testset, batch_size=1)
+    else:
+        testloader = DataLoader(testset, batch_size=100)
     # set model 
     # evaluate with novel classes
     if args.division == 'novel':
         if args.type == 'coop':
             model = CoOp(testset.novel_labels, cfg, device)
         elif args.type == 'cocoop':
-            model = CoCoOp(testset.novel_labels, cfg, device)
+            model = CoCoOp(testset.novel_labels, cfg, device, prefix=cfg.model.prefix)
         elif args.type == 'visualcoop':
             model = VisualCoOp(testset.novel_labels, cfg, device, args.layer)
-        elif args.type == 'visualcocoop':
-            model = VisualCoCoOp(testset.novel_labels, cfg, device, args.layer)
+        elif args.type == 'visualcocoopv1':
+            model = VisualCoCoOpv1(testset.novel_labels, cfg, device, args.layer, prefix=cfg.model.prefix)
+        elif args.type == 'visualcocoopv2':
+            model = VisualCoCoOpv2(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix)
     
     # evaluate with base classes(classes used for training)
     elif args.division == 'base':
         if args.type == 'coop':
             model = CoOp(testset.base_labels, cfg, device)
         elif args.type == 'cocoop':
-            model = CoCoOp(testset.base_labels, cfg, device)
+            model = CoCoOp(testset.base_labels, cfg, device, prefix=cfg.model.prefix)
         elif args.type == 'visualcoop':
             model = VisualCoOp(testset.base_labels, cfg, device, args.layer)
-        elif args.type == 'visualcocoop':
-            model = VisualCoCoOp(testset.base_labels, cfg, device, args.layer)
+        elif args.type == 'visualcocoopv1':
+            model = VisualCoCoOpv1(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix)
+        elif args.type == 'visualcocoopv2':
+            model = VisualCoCoOpv2(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix)
 
     # evaluate with entire classes(trained with entire classes)
     elif args.division == 'entire':
         if args.type == 'coop':
             model = CoOp(testset.labels, cfg, device)
         elif args.type == 'cocoop':
-            model = CoCoOp(testset.labels, cfg, device)
+            model = CoCoOp(testset.labels, cfg, device, prefix=cfg.model.prefix)
         elif args.type == 'visualcoop':
             model = VisualCoOp(testset.labels, cfg, device, args.layer)
-        elif args.type == 'visualcocoop':
-            model = VisualCoCoOp(testset.labels, cfg, device, args.layer)
+        elif args.type == 'visualcocoopv1':
+            model = VisualCoCoOpv1(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix)
+        elif args.type == 'visualcocoopv2':
+            model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix)
     
     # load trained 
-    state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch),
+    state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}_layer{}_seed{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch, args.layer, args.seed),
                             map_location=device)
     model.load_state_dict(state_dict())
     if device == torch.device('cpu'):
@@ -124,8 +134,8 @@ if __name__ == '__main__':
             logits = logits.to(torch.device('cpu'))
             pred = torch.topk(logits, k=args.topk, dim=1).indices
             preds = torch.cat([preds, pred], dim=0)
-            if (step+1) % 10:
-                print('{} images evaluated'.format(step * testloader.batch_size))
+            #if (step+1) % 10:
+            #    print('{} images evaluated'.format(step * testloader.batch_size))
         acc = top_k_acc(preds, ys, top_k = args.topk)
     
-    print('top {} Accuracy on {} dataset with {} shot setting ({} classes): {}%'.format(args.topk, args.dataset, args.kshot, args.division, acc))
+    print('top {} Accuracy on {} dataset with {} shot setting ({} classes, seed :{}): {}%'.format(args.topk, args.dataset, args.kshot, args.division, args.seed, acc))
