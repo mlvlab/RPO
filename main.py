@@ -16,8 +16,48 @@ if __name__ == '__main__':
     parser.add_argument('--start_epoch', required=True, type=int)
     parser.add_argument('--division', required=True, default='base', type=str, help = 'one of entire | base')
     parser.add_argument('--seed', required=True, type=int)
+    parser.add_argument('--train_textprompt', required=True, type=str)
+    parser.add_argument('--regularize_vprompt', required=True, type=str)
     args = parser.parse_args()
 
+    if args.train_textprompt == 'y':
+        cfg.train.train_textprompt = True
+    else:
+        cfg.train.train_textprompt = False
+    
+    if args.regularize_vprompt == 'y':
+        cfg.train.visualreg = True
+    else:
+        cfg.train.visualreg = False
+
+    if (cfg.model.prefix is not None) & (not cfg.train.train_textprompt):
+        if args.dataset == 'eurosat':
+            cfg.model.prefix = 'a centered satellite photo of _'
+        elif args.dataset == 'caltech101':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'oxfordpets':
+            cfg.model.prefix = 'a photo of a _, a type of pet'
+        elif args.dataset == 'stanfordcars':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'imagenet':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'flowers102':
+            cfg.model.prefix = 'a photo of a _, a type of flower'
+        elif args.dataset == 'food101':
+            cfg.model.prefix = 'a photo of a _, a type of food'
+        elif args.dataset == 'fgvcaircraft':
+            cfg.model.prefix = 'a photo of a _, a type of aircraft'
+        elif args.dataset == 'sun397':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'dtd':
+            cfg.model.prefix = '_ texture'
+        elif args.dataset == 'ucf101':
+            cfg.model.prefix = 'a photo of a person doing _'
+
+    print(cfg)
+
+    # cfg.model.prefix = 'a photo of a _'
+    
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     torch.cuda.manual_seed(args.seed)

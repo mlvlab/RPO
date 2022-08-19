@@ -93,14 +93,69 @@ class TextEncoder(nn.Module):
         return x
 
 
+
+class ZSCLIP(nn.Module):
+    def __init__(self, labels, cfg, device, L = None, prefix=None):
+        super(ZSCLIP, self).__init__()
+        self.cfg = cfg
+        self.labels = labels
+        self.device = device
+        self.n_cls = len(labels)
+        self.L = L
+        self.prefix = prefix
+        # transformation pipeline
+        self.transforms_clip = T.Compose([
+                                     T.Resize((224,224)),
+                                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                                    ])
+        clipmodel, _ = clip.load(cfg.model.backbone, device=device)
+        self.dtype = torch.float32
+        self.token_embedding = clipmodel.token_embedding
+        self.img_enc = clipmodel.visual
+        self.text_enc = TextEncoder(cfg, device)
+        self.logit_scale = clipmodel.logit_scale
+        self.construct_prompt()
+        # set device
+        #if self.device == torch.device('cpu'):
+        #    self.dtype = torch.float32
+        #else:
+        #    self.dtype = torch.float32
+        del clipmodel
+
+    def construct_prompt(self):
+        ctx_len = self.cfg.model.ctx_len
+
+        # initialize text prompt
+        prompt_prefix = self.prefix
+        classnames = [name.replace("_", " ") for name in self.labels]
+        prompts = [prompt_prefix.replace('_', c)+'.' for c in classnames]
+        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+        with torch.no_grad():
+            self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+
+    def forward(self, img):
+        pixel_values = self.transforms_clip(img).to(self.device)
+        prompt = self.embedding
+        text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized)
+        
+        # create continuous prompt
+        img_f = self.img_enc(pixel_values.type(self.dtype).contiguous())
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True)
+        logits = self.logit_scale.exp() * torch.matmul(img_f, text_f.t()) # batch_size, n_cls
+        return logits
+
+
+
 class CoOp(nn.Module):
-    def __init__(self, labels, cfg, device, L = None):
+    def __init__(self, labels, cfg, device, L = None, prefix=None):
         super(CoOp, self).__init__()
         self.cfg = cfg
         self.labels = labels
         self.device = device
         self.n_cls = len(labels)
         self.L = L
+        self.prefix = prefix
         # transformation pipeline
         self.transforms_clip = T.Compose([
                                      T.Resize((224,224)),
@@ -644,8 +699,18 @@ class VisualCoCoOpv1(nn.Module):
             nn.init.normal_(prompt_vec, std=0.02)
             self.prompt_emb = nn.Parameter(prompt_vec)
             prompt_prefix = " ".join(['V']*ctx_len)
+            classnames = [name.replace("_", " ") for name in self.labels]
+            prompts = [prompt_prefix + " " + name + "." for name in classnames]
+            self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+            with torch.no_grad():
+                self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+            # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+            self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
+            self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+        
         # initialize with predefined prefix (i.e. A photo of a)
         else:
+            # initialize with 'a photo of a'
             if self.cfg.train.train_textprompt:
                 # tokenize "prompt_prefix"
                 ctx_len = len(self.prefix.split(' '))
@@ -654,21 +719,24 @@ class VisualCoCoOpv1(nn.Module):
                     embedding = self.token_embedding(prompt).type(self.dtype)
                 self.prompt_emb = nn.Parameter(embedding[0, 1:1+ctx_len, :])
                 prompt_prefix = self.prefix
-            # do not train text prompt (only visual prompt)
+                classnames = [name.replace("_", " ") for name in self.labels]
+                prompts = [prompt_prefix + " " + name + "." for name in classnames]
+                self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+                with torch.no_grad():
+                    self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+                # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+                self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
+                self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+            
+            # initialize with manual prompt (do not train text prompt)
             else:
                 prompt_prefix = self.prefix
-
-        
-        classnames = [name.replace("_", " ") for name in self.labels]
-        prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
-        with torch.no_grad():
-            self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
-        
-        # extract [SOS] word embedding & [CLASS],[EOS] word embedding
-        self.sos_emb = self.embedding[:,:1,:] # (n_cls, 1, h_dim)
-        self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls, *, h_dim)
-
+                classnames = [name.replace("_", " ") for name in self.labels]
+                prompts = [prompt_prefix.replace('_', c)+'.' for c in classnames]
+                self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+                with torch.no_grad():
+                    self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+       
         # visual prompt embedding
         ## initialize visual prompt embedding
         v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.v_h_dim, dtype=self.dtype)
@@ -687,7 +755,8 @@ class VisualCoCoOpv1(nn.Module):
             prompt = torch.cat([prefix, context.to(self.device), suffix], dim=1) #### (n_cls, 77, h_dim)    
         else:
             prompt = self.embedding
-        text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized) # (n_cls, h_dim)
+        text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True) # (n_cls, h_dim)
 
         # forward propagate image features
         x = self.patch_embedding(pixel_values.type(self.dtype)) # (batch_size, h_dim, 7, 7)
@@ -711,6 +780,7 @@ class VisualCoCoOpv1(nn.Module):
         instance_f = self.post_ln(img_fm[:,1:1+self.cfg.model.v_ctx_len,:]) # (batch_size, v_ctx_len, v_h_dim)
         instance_f = torch.bmm(instance_f, self.vision_proj.repeat(batch_size, 1, 1)) # (batch_size, v_ctx_len, h_dim)
         instance_f = instance_f.mean(dim=1, keepdim=True) # (batch_size, 1, h_dim)
+        instance_f = instance_f / instance_f.norm(dim=-1, keepdim=True)
         # instance_f = self.meta_net(instance_f.squeeze(1)).unsqueeze(1) # (batch_size, h_dim)
 
         # add instance feature to class embeddings
@@ -754,7 +824,7 @@ class VisualCoCoOpv2(nn.Module):
         self.meta_net = nn.Sequential(OrderedDict([
             ("meta_linear1", nn.Linear(cfg.model.h_dim, cfg.model.h_dim // 16)),
             ("relu", nn.ReLU(inplace=True)),
-            ("meta_linear2", nn.Linear(cfg.model.h_dim // 16, cfg.model.h_dim)),
+            ("meta_linear2", nn.Linear(cfg.model.h_dim // 16, cfg.model.h_dim))
         ]))
         
         # text encoder
@@ -779,15 +849,25 @@ class VisualCoCoOpv2(nn.Module):
     def construct_prompt(self):
         ctx_len = self.ctx_len
         v_ctx_len = self.v_ctx_len
-
+        
         # initialize randomly
         if self.prefix is None:
-            prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.dtype)
+            prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.dtype, device=self.device)
             nn.init.normal_(prompt_vec, std=0.02)
             self.prompt_emb = nn.Parameter(prompt_vec)
             prompt_prefix = " ".join(['V']*ctx_len)
+            classnames = [name.replace("_", " ") for name in self.labels]
+            prompts = [prompt_prefix + " " + name + "." for name in classnames]
+            self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+            with torch.no_grad():
+                self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+            # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+            self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
+            self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+        
         # initialize with predefined prefix (i.e. A photo of a)
         else:
+            # initialize with 'a photo of a'
             if self.cfg.train.train_textprompt:
                 # tokenize "prompt_prefix"
                 ctx_len = len(self.prefix.split(' '))
@@ -796,19 +876,23 @@ class VisualCoCoOpv2(nn.Module):
                     embedding = self.token_embedding(prompt).type(self.dtype)
                 self.prompt_emb = nn.Parameter(embedding[0, 1:1+ctx_len, :])
                 prompt_prefix = self.prefix
-            # do not train text prompt (only visual prompt)
+                classnames = [name.replace("_", " ") for name in self.labels]
+                prompts = [prompt_prefix + " " + name + "." for name in classnames]
+                self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+                with torch.no_grad():
+                    self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+                # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+                self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
+                self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+            
+            # initialize with manual prompt (do not train text prompt)
             else:
                 prompt_prefix = self.prefix
-        
-        classnames = [name.replace("_", " ") for name in self.labels]
-        prompts = [prompt_prefix + " " + name + "." for name in classnames]
-        self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
-        with torch.no_grad():
-            self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
-        
-        # extract [SOS] word embedding & [CLASS],[EOS] word embedding
-        self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
-        self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+                classnames = [name.replace("_", " ") for name in self.labels]
+                prompts = [prompt_prefix.replace('_', c)+'.' for c in classnames]
+                self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+                with torch.no_grad():
+                    self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
 
         # visual prompt embedding
         ## initialize visual prompt embedding
@@ -820,18 +904,19 @@ class VisualCoCoOpv2(nn.Module):
         pixel_values = self.transforms_clip(img).to(self.device)
         batch_size = pixel_values.shape[0]
 
+        # training text prompt
         if self.cfg.train.train_textprompt:
-        # forward propagate class features
             context = self.prompt_emb.repeat(self.n_cls, 1,1)
             prefix = self.sos_emb
             suffix = self.class_emb
             prompt = torch.cat([prefix, context.to(self.device), suffix], dim=1) #### 수정  
+        
+        # use fixed text prompt
         else:
             prompt = self.embedding     
         text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized) # (n_cls, h_dim)
-        '''
-        text_f = self.text_enc(self.embedding, self.prompts_tokenized)
-        '''
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True) # (n_cls, h_dim)
+        
         # forward propagate image features
         x = self.patch_embedding(pixel_values.type(self.dtype)) # (batch_size, h_dim, 7, 7)
         x = x.reshape(x.shape[0], x.shape[1], -1).permute(0,2,1) # (batch_size, 49, h_dim)
@@ -854,16 +939,213 @@ class VisualCoCoOpv2(nn.Module):
         instance_f = self.post_ln(img_fm[:,1:1+self.cfg.model.v_ctx_len,:]) # (batch_size, v_ctx_len, v_h_dim)
         instance_f = torch.bmm(instance_f, self.vision_proj.repeat(batch_size, 1, 1)) # (batch_size, v_ctx_len, h_dim)
         instance_f = instance_f.mean(dim=1, keepdim=True) # (batch_size, 1, h_dim)
-        # instance_f = self.meta_net(instance_f.squeeze(1)).unsqueeze(1) # (batch_size, h_dim)
+        instance_f = self.meta_net(instance_f.squeeze(1)).unsqueeze(1) # (batch_size, 1, h_dim)
+        instance_f = instance_f / instance_f.norm(dim=-1, keepdim=True)
 
         # add instance feature to class embeddings
         text_f = text_f.unsqueeze(0).repeat(batch_size, 1, 1) + instance_f # (batch_size, n_cls, h_dim)
         # normalize features 
-        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
         text_f = text_f / text_f.norm(dim=-1, keepdim=True)
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True)
         logits = (self.logit_scale.exp() * torch.bmm(text_f, img_f.permute(0,2,1))).squeeze(-1)
         return logits # (batch_size, n_cls)
 
+
+class VisualCoCoOpv3(nn.Module):
+    def __init__(self, labels, cfg, device, L=None, prefix=None):
+        super(VisualCoCoOpv3, self).__init__()
+        self.cfg = cfg
+        self.ctx_len = self.cfg.model.ctx_len
+        self.v_ctx_len = self.cfg.model.v_ctx_len
+        self.labels = labels
+        self.device = device
+        self.n_cls = len(labels)
+        self.L = L
+        self.prefix = prefix
+        # transformation pipeline
+        self.transforms_clip = T.Compose([
+                                     T.Resize((224,224)),
+                                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                                    ])
+        clipmodel, _ = clip.load(cfg.model.backbone, device=device)
+
+        # set device
+        #if self.device == torch.device('cpu'):
+        self.dtype = torch.float32
+        #else:
+        #    self.dtype = torch.float16
+
+        # meta network for visual prompt generation
+        self.combiner_net = Combiner(cfg)
+        
+        # text encoder
+        self.token_embedding = clipmodel.token_embedding
+        self.text_enc = TextEncoder(cfg, device)
+    
+        # vision encoder
+        self.patch_embedding = clipmodel.visual.conv1  ######## 수정 
+        self.pos_embedding = clipmodel.visual.positional_embedding ####### 수정
+        self.cls_embedding = clipmodel.visual.class_embedding ######### 수정
+        self.post_ln = clipmodel.visual.ln_post
+        self.vision_proj = clipmodel.visual.proj
+        if self.L is None:
+            self.img_enc = VisualEncoder2(cfg, device)
+        else:
+            self.img_enc = VisualEncoder_int2(L, cfg, device)
+
+        self.logit_scale = clipmodel.logit_scale
+        self.construct_prompt()
+        del clipmodel
+
+    def construct_prompt(self):
+        ctx_len = self.ctx_len
+        v_ctx_len = self.v_ctx_len
+        
+        # initialize randomly
+        if self.prefix is None:
+            prompt_vec = torch.empty(self.cfg.model.ctx_len, self.cfg.model.t_h_dim, dtype=self.dtype, device=self.device)
+            nn.init.normal_(prompt_vec, std=0.02)
+            self.prompt_emb = nn.Parameter(prompt_vec)
+            prompt_prefix = " ".join(['V']*ctx_len)
+            classnames = [name.replace("_", " ") for name in self.labels]
+            prompts = [prompt_prefix + " " + name + "." for name in classnames]
+            self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+            with torch.no_grad():
+                self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+            # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+            self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
+            self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+        
+        # initialize with predefined prefix (i.e. A photo of a)
+        else:
+            # initialize with 'a photo of a'
+            if self.cfg.train.train_textprompt:
+                # tokenize "prompt_prefix"
+                ctx_len = len(self.prefix.split(' '))
+                prompt = clip.tokenize(self.prefix).to(self.device)
+                with torch.no_grad():
+                    embedding = self.token_embedding(prompt).type(self.dtype)
+                self.prompt_emb = nn.Parameter(embedding[0, 1:1+ctx_len, :])
+                prompt_prefix = self.prefix
+                classnames = [name.replace("_", " ") for name in self.labels]
+                prompts = [prompt_prefix + " " + name + "." for name in classnames]
+                self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+                with torch.no_grad():
+                    self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+                # extract [SOS] word embedding & [CLASS],[EOS] word embedding
+                self.sos_emb = self.embedding[:,:1,:] # (n_cls x 1 x h_dim)
+                self.class_emb = self.embedding[:, 1+ctx_len:, :] # (n_cls x * x h_dim)
+            
+            # initialize with manual prompt (do not train text prompt)
+            else:
+                prompt_prefix = self.prefix
+                classnames = [name.replace("_", " ") for name in self.labels]
+                prompts = [prompt_prefix.replace('_', c)+'.' for c in classnames]
+                self.prompts_tokenized = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+                with torch.no_grad():
+                    self.embedding = self.token_embedding(self.prompts_tokenized).type(self.dtype) # (n_cls, 77, h_dim)
+
+        # visual prompt embedding
+        ## initialize visual prompt embedding
+        v_prompt_vec = torch.empty(self.v_ctx_len, self.cfg.model.v_h_dim, dtype=self.dtype)
+        nn.init.normal_(v_prompt_vec, std=0.02)
+        self.v_prompt_emb = nn.Parameter(v_prompt_vec, requires_grad=True) ######################
+    
+    def forward(self, img):
+        pixel_values = self.transforms_clip(img).to(self.device)
+        batch_size = pixel_values.shape[0]
+
+        # training text prompt
+        if self.cfg.train.train_textprompt:
+            context = self.prompt_emb.repeat(self.n_cls, 1,1)
+            prefix = self.sos_emb
+            suffix = self.class_emb
+            prompt = torch.cat([prefix, context.to(self.device), suffix], dim=1) #### 수정  
+        
+        # use fixed text prompt
+        else:
+            prompt = self.embedding     
+        text_f = self.text_enc(prompt.type(self.dtype), self.prompts_tokenized) # (n_cls, h_dim)
+        text_f = text_f / text_f.norm(dim=-1, keepdim=True) # (n_cls, h_dim)
+        
+        # forward propagate image features
+        x = self.patch_embedding(pixel_values.type(self.dtype)) # (batch_size, h_dim, 7, 7)
+        x = x.reshape(x.shape[0], x.shape[1], -1).permute(0,2,1) # (batch_size, 49, h_dim)
+        
+        # concatenating visual prompt / adding visual prompt
+        x = torch.cat([self.cls_embedding.repeat(batch_size,1,1).type(self.dtype), x], dim=1) # 16 (batch_size, 50, h_dim)
+        x = x + self.pos_embedding.type(self.dtype) # (N,L,D) 
+    
+        if self.L is None:
+            x = torch.cat([x[:,:1,:], self.v_prompt_emb.repeat(batch_size,1,1).to(self.device), x[:,1+self.v_ctx_len:,:]], dim=1)
+            img_fm = self.img_enc(x)
+        else:
+            v_prompt = self.v_prompt_emb.repeat(batch_size, 1,1).to(self.device)
+            img_fm = self.img_enc(x, v_prompt)
+
+        img_fm = self.img_enc(x)
+        img_f = (self.post_ln(img_fm[:,0,:])@self.vision_proj).unsqueeze(1) # (batch_size, 1, h_dim)
+        
+        # processing instance feature
+        instance_f = self.post_ln(img_fm[:,1:1+self.cfg.model.v_ctx_len,:]) # (batch_size, v_ctx_len, v_h_dim)
+        instance_f = torch.bmm(instance_f, self.vision_proj.repeat(batch_size, 1, 1)) # (batch_size, v_ctx_len, h_dim)
+        instance_f = instance_f.mean(dim=1, keepdim=True) # (batch_size, 1, h_dim)
+        instance_f = instance_f / instance_f.norm(dim=-1, keepdim=True)
+        
+        comb_f = self.combiner_net(text_f, instance_f.squeeze(1)) # (batch_size, n_cls, h_dim)
+        
+        img_f = img_f / img_f.norm(dim=-1, keepdim=True) # (batch_size, 1, h_dim)
+        logits = (self.logit_scale.exp() * torch.bmm(comb_f, img_f.permute(0,2,1))).squeeze(-1)
+        return logits # (batch_size, n_cls)
+
+
+class Combiner(nn.Module):
+    def __init__(self, cfg):
+        super(Combiner, self).__init__()
+        
+        self.net_t = nn.Sequential(OrderedDict([
+            ("linear1", nn.Linear(cfg.model.h_dim, cfg.model.h_dim // 2)),
+            ("relu", nn.ReLU(inplace=True)),
+            ('dropout', nn.Dropout()),
+        ]))
+        
+        self.net_i = nn.Sequential(OrderedDict([
+            ("linear1", nn.Linear(cfg.model.h_dim, cfg.model.h_dim // 2)),
+            ("relu", nn.ReLU(inplace=True)),
+            ('dropout', nn.Dropout()),
+        ]))
+        
+        self.net_c = nn.Sequential(OrderedDict([
+            ("linear1", nn.Linear(cfg.model.h_dim, cfg.model.h_dim)),
+            ("relu", nn.ReLU(inplace=True)),
+            ('dropout', nn.Dropout()),
+            ('linear2', nn.Linear(cfg.model.h_dim, cfg.model.h_dim))
+        ]))
+        self.net_m = nn.Sequential(OrderedDict([
+            ("linear1", nn.Linear(cfg.model.h_dim, cfg.model.h_dim)),
+            ("relu", nn.ReLU(inplace=True)),
+            ('dropout', nn.Dropout()),
+            ('linear2', nn.Linear(cfg.model.h_dim, cfg.model.h_dim))
+        ]))
+    
+    def forward(self, text_f, instance_f):
+        '''
+        text_f : torch.FloatTensor shape of (n_cls, h_dim)
+        instance_f : torch.FloatTensor shape of (batch_size, h_dim)
+        '''
+        result = []
+        x_t = self.net_t(text_f) #(n_cls, h_dim//2)
+        for inst_f in instance_f:
+            inst_f = inst_f.unsqueeze(0) #(1, h_dim)
+            x_i = self.net_i(inst_f) #(1, h_dim//2)
+            x_c = torch.cat([x_t, x_i.repeat(x_t.shape[0], 1)], dim = -1) #(n_cls, h_dim)
+            x_m = self.net_m(x_c) #(n_cls, h_dim)
+            x_c0 = (1 - torch.functional.sigmoid(self.net_c(x_c)))*inst_f #(n_cls, h_dim)
+            x_c1 = torch.functional.sigmoid(self.net_c(x_c))*text_f #(n_cls, h_dim)
+            x = x_m + x_c0 + x_c1
+            x = x / x.norm(dim=-1, keepdim=True) #(n_cls, h_dim)
+            result.append(x)
+        return torch.stack(result) #(batch_size, n_cls, h_dim)
 
 
 
@@ -871,7 +1153,6 @@ class VisualCoCoOpv2(nn.Module):
 class PromptOptim(object):
     def __init__(self, cfg, device, L=None, dataset = None, kshot = None, type = 'coop', start_epoch = 0, val = False, only_base = True, seed=2022):
         super(PromptOptim, self).__init__()
-        
         # set configuration
         self.cfg = cfg
         self.type = type
@@ -975,8 +1256,8 @@ class PromptOptim(object):
 
                 loss = self.criterion(logits, label.to(self.device))
                 # l2 regularization on visual prompt
-                if self.type == 'visualcoocoopv1' or self.type == 'visualcocoopv2':
-                    loss = loss + self.model.v_prompt_emb.norm()# + self.model.meta_net.meta_linear1.weight.norm() + self.model.meta_net.meta_linear2.weight.norm()
+                if self.cfg.train.visualreg:
+                     loss = loss + self.model.v_prompt_emb.norm()# + self.model.meta_net.meta_linear1.weight.norm() + self.model.meta_net.meta_linear2.weight.norm()
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
@@ -993,7 +1274,7 @@ class PromptOptim(object):
                     val_acc(self.model, self.device, self.dataset, 1)
                 if not os.path.exists('./ckpt/{}_promptlearn_{}/{}_shot/'.format(self.dataset, self.type, self.kshot)):
                     os.makedirs('./ckpt/{}_promptlearn_{}/{}_shot/'.format(self.dataset, self.type, self.kshot))
-                torch.save(self.model.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}_layer{}_seed{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1, self.model.L, self.seed))
+                torch.save(self.model.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}_traintext{}_visualreg{}_seed{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1, self.cfg.train.train_textprompt, self.cfg.train.visualreg, self.seed))
                 #torch.save(self.optimizer.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/optimizer_epoch{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1))
                 #torch.save(self.lr_sched.state_dict, './ckpt/{}_promptlearn_{}/{}_shot/lrsched_epoch{}.pt'.format(self.dataset, self.type, self.kshot, epoch+1)) 
                 print('checkpoint saved')

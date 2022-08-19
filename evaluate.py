@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from model import CoOp, CoCoOp, VisualCoOp, VisualCoCoOpv2, VisualCoCoOpv1
+from model import CoOp, CoCoOp, VisualCoOp, VisualCoCoOpv2, VisualCoCoOpv1, ZSCLIP
 from dataset import UnseenDataset
 from config import cfg
 
@@ -53,7 +53,43 @@ if __name__ == '__main__':
     parser.add_argument('--kshot', type=int, required=True)
     parser.add_argument('--topk', type=int, required=True, default=1)
     parser.add_argument('--seed', required=True, type=int)
+    parser.add_argument('--train_textprompt', required=True, type=str)
+    parser.add_argument('--regularize_vprompt', required=True, type=str)
     args = parser.parse_args()
+
+    if args.train_textprompt == 'y':
+        cfg.train.train_textprompt = True
+    else:
+        cfg.train.train_textprompt = False
+    
+    if args.regularize_vprompt == 'y':
+        cfg.train.visualreg = True
+    else:
+        cfg.train.visualreg = False
+
+    if (cfg.model.prefix is not None) & (not cfg.train.train_textprompt):
+        if args.dataset == 'eurosat':
+            cfg.model.prefix = 'a centered satellite photo of _'
+        elif args.dataset == 'caltech101':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'oxfordpets':
+            cfg.model.prefix = 'a photo of a _, a type of pet'
+        elif args.dataset == 'stanfordcars':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'imagenet':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'flowers102':
+            cfg.model.prefix = 'a photo of a _, a type of flower'
+        elif args.dataset == 'food101':
+            cfg.model.prefix = 'a photo of a _, a type of food'
+        elif args.dataset == 'fgvcaircraft':
+            cfg.model.prefix = 'a photo of a _, a type of aircraft'
+        elif args.dataset == 'sun397':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'dtd':
+            cfg.model.prefix = '_ texture'
+        elif args.dataset == 'ucf101':
+            cfg.model.prefix = 'a photo of a person doing _'
 
     # set device
     device = torch.device(args.device)
@@ -73,7 +109,9 @@ if __name__ == '__main__':
     # set model 
     # evaluate with novel classes
     if args.division == 'novel':
-        if args.type == 'coop':
+        if args.type == 'zsclip':
+            model = ZSCLIP(testset.novel_labels, cfg, device, prefix = cfg.model.prefix)
+        elif args.type == 'coop':
             model = CoOp(testset.novel_labels, cfg, device)
         elif args.type == 'cocoop':
             model = CoCoOp(testset.novel_labels, cfg, device, prefix=cfg.model.prefix)
@@ -86,7 +124,9 @@ if __name__ == '__main__':
     
     # evaluate with base classes(classes used for training)
     elif args.division == 'base':
-        if args.type == 'coop':
+        if args.type == 'zsclip':
+            model = ZSCLIP(testset.base_labels, cfg, device, prefix = cfg.model.prefix)
+        elif args.type == 'coop':
             model = CoOp(testset.base_labels, cfg, device)
         elif args.type == 'cocoop':
             model = CoCoOp(testset.base_labels, cfg, device, prefix=cfg.model.prefix)
@@ -99,7 +139,9 @@ if __name__ == '__main__':
 
     # evaluate with entire classes(trained with entire classes)
     elif args.division == 'entire':
-        if args.type == 'coop':
+        if args.type == 'zsclip':
+            model = ZSCLIP(testset.labels, cfg, device, prefix = cfg.model.prefix)
+        elif args.type == 'coop':
             model = CoOp(testset.labels, cfg, device)
         elif args.type == 'cocoop':
             model = CoCoOp(testset.labels, cfg, device, prefix=cfg.model.prefix)
@@ -110,13 +152,18 @@ if __name__ == '__main__':
         elif args.type == 'visualcocoopv2':
             model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix)
     
-    # load trained 
-    state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}_layer{}_seed{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch, args.layer, args.seed),
-                            map_location=device)
-    model.load_state_dict(state_dict())
+    # load trained ckpt
+    if args.type != 'zsclip':
+        state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}_traintext{}_visualreg{}_seed{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch, cfg.train.train_textprompt,  cfg.train.visualreg, args.seed),
+                                map_location=device)
+        model.load_state_dict(state_dict())
+
     if device == torch.device('cpu'):
         model = model.type(torch.float32)
     model.to(device)
+
+    model.eval()
+
     if args.division == 'entire':
         ys = torch.tensor(testset.df.labels.values)
     elif args.division == 'base':
@@ -128,7 +175,6 @@ if __name__ == '__main__':
     
     # evaluation iteration
     with torch.no_grad():
-        print(len(testloader))
         for step, pixel in enumerate(testloader):
             logits = model(pixel.type(torch.float32))
             logits = logits.to(torch.device('cpu'))
@@ -138,4 +184,5 @@ if __name__ == '__main__':
             #    print('{} images evaluated'.format(step * testloader.batch_size))
         acc = top_k_acc(preds, ys, top_k = args.topk)
     
-    print('top {} Accuracy on {} dataset with {} shot setting ({} classes, seed :{}): {}%'.format(args.topk, args.dataset, args.kshot, args.division, args.seed, acc))
+    print('top {} Accuracy on {} dataset with {} shot setting ({} classes, model type:{}, train textprompt:{}, reg_visualprompt:{}, seed :{}): {}%'.format(
+        args.topk, args.dataset, args.kshot, args.division, args.type, cfg.train.train_textprompt, cfg.train.visualreg, args.seed, acc))
