@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from model import CoOp, CoCoOp, VisualCoOp, VisualCoCoOpv2, VisualCoCoOpv1, ZSCLIP
+from model import CoOp, CoCoOp, VisualCoCoOpv2, VisualCoCoOpv1, ZSCLIP, CoOpv2, VisualCoCoOpv3
 from dataset import UnseenDataset
 from config import cfg
 
@@ -55,17 +55,22 @@ if __name__ == '__main__':
     parser.add_argument('--seed', required=True, type=int)
     parser.add_argument('--train_textprompt', required=True, type=str)
     parser.add_argument('--regularize_vprompt', required=True, type=str)
+    parser.add_argument('--mode', required=True, type=str)
     args = parser.parse_args()
 
-    if args.train_textprompt == 'y':
+    if args.type == 'coop' or args.type == 'cocoop':
         cfg.train.train_textprompt = True
-    else:
-        cfg.train.train_textprompt = False
-    
-    if args.regularize_vprompt == 'y':
-        cfg.train.visualreg = True
-    else:
         cfg.train.visualreg = False
+    else:
+        if args.train_textprompt == 'y':
+            cfg.train.train_textprompt = True
+        else:
+            cfg.train.train_textprompt = False
+        
+        if args.regularize_vprompt == 'y':
+            cfg.train.visualreg = True
+        else:
+            cfg.train.visualreg = False
 
     if (cfg.model.prefix is not None) & (not cfg.train.train_textprompt):
         if args.dataset == 'eurosat':
@@ -94,7 +99,7 @@ if __name__ == '__main__':
     # set device
     device = torch.device(args.device)
 
-    # set evaluation dataloader 
+    # set evaluation dataset
     if args.division == 'entire':
         testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='entire')
     elif args.division == 'base':
@@ -102,55 +107,81 @@ if __name__ == '__main__':
     elif args.division == 'novel':
         testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel')
     
+    # set dataloader
     if args.type == 'cocoop':
         testloader = DataLoader(testset, batch_size=1)
     else:
         testloader = DataLoader(testset, batch_size=100)
-    # set model 
-    # evaluate with novel classes
-    if args.division == 'novel':
-        if args.type == 'zsclip':
-            model = ZSCLIP(testset.novel_labels, cfg, device, prefix = cfg.model.prefix)
-        elif args.type == 'coop':
-            model = CoOp(testset.novel_labels, cfg, device)
-        elif args.type == 'cocoop':
-            model = CoCoOp(testset.novel_labels, cfg, device, prefix=cfg.model.prefix)
-        elif args.type == 'visualcoop':
-            model = VisualCoOp(testset.novel_labels, cfg, device, args.layer)
-        elif args.type == 'visualcocoopv1':
-            model = VisualCoCoOpv1(testset.novel_labels, cfg, device, args.layer, prefix=cfg.model.prefix)
-        elif args.type == 'visualcocoopv2':
-            model = VisualCoCoOpv2(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix)
     
-    # evaluate with base classes(classes used for training)
-    elif args.division == 'base':
-        if args.type == 'zsclip':
-            model = ZSCLIP(testset.base_labels, cfg, device, prefix = cfg.model.prefix)
-        elif args.type == 'coop':
-            model = CoOp(testset.base_labels, cfg, device)
-        elif args.type == 'cocoop':
-            model = CoCoOp(testset.base_labels, cfg, device, prefix=cfg.model.prefix)
-        elif args.type == 'visualcoop':
-            model = VisualCoOp(testset.base_labels, cfg, device, args.layer)
-        elif args.type == 'visualcocoopv1':
-            model = VisualCoCoOpv1(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix)
-        elif args.type == 'visualcocoopv2':
-            model = VisualCoCoOpv2(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix)
+    # set model 
+    # constrained setting
+    if args.mode == 'constrained':
+        if args.division == 'novel':
+            if args.type == 'zsclip':
+                model = ZSCLIP(testset.novel_labels, cfg, device, prefix = cfg.model.prefix)
+            elif args.type == 'coop':
+                model = CoOp(testset.novel_labels, cfg, device)
+            elif args.type == 'cocoop':
+                model = CoCoOp(testset.novel_labels, cfg, device, prefix=cfg.model.prefix)
+            elif args.type == 'visualcocoopv1':
+                model = VisualCoCoOpv1(testset.novel_labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv2':
+                model = VisualCoCoOpv2(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv3':
+                model = VisualCoCoOpv3(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'coopv2':
+                model = CoOpv2(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
+        
+        # evaluate with base classes(classes used for training)
+        elif args.division == 'base':
+            if args.type == 'zsclip':
+                model = ZSCLIP(testset.base_labels, cfg, device, prefix = cfg.model.prefix)
+            elif args.type == 'coop':
+                model = CoOp(testset.base_labels, cfg, device)
+            elif args.type == 'cocoop':
+                model = CoCoOp(testset.base_labels, cfg, device, prefix=cfg.model.prefix)
+            elif args.type == 'visualcocoopv1':
+                model = VisualCoCoOpv1(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv2':
+                model = VisualCoCoOpv2(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv3':
+                model = VisualCoCoOpv3(testset.base_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'coopv2':
+                model = CoOpv2(testset.base_labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
 
-    # evaluate with entire classes(trained with entire classes)
-    elif args.division == 'entire':
+        # evaluate with entire classes(trained with entire classes)
+        elif args.division == 'entire':
+            if args.type == 'zsclip':
+                model = ZSCLIP(testset.labels, cfg, device, prefix = cfg.model.prefix)
+            elif args.type == 'coop':
+                model = CoOp(testset.labels, cfg, device)
+            elif args.type == 'cocoop':
+                model = CoCoOp(testset.labels, cfg, device, prefix=cfg.model.prefix)
+            elif args.type == 'visualcocoopv1':
+                model = VisualCoCoOpv1(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv2':
+                model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv3':
+                model = VisualCoCoOpv3(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'coopv2':
+                model = CoOpv2(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
+    # generalized setting
+    else:
         if args.type == 'zsclip':
             model = ZSCLIP(testset.labels, cfg, device, prefix = cfg.model.prefix)
         elif args.type == 'coop':
             model = CoOp(testset.labels, cfg, device)
         elif args.type == 'cocoop':
             model = CoCoOp(testset.labels, cfg, device, prefix=cfg.model.prefix)
-        elif args.type == 'visualcoop':
-            model = VisualCoOp(testset.labels, cfg, device, args.layer)
         elif args.type == 'visualcocoopv1':
-            model = VisualCoCoOpv1(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix)
+            model = VisualCoCoOpv1(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
         elif args.type == 'visualcocoopv2':
-            model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix)
+            model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+        elif args.type == 'visualcocoopv3':
+                model = VisualCoCoOpv3(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+        elif args.type == 'coopv2':
+            model = CoOpv2(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
+
     
     # load trained ckpt
     if args.type != 'zsclip':
@@ -164,13 +195,17 @@ if __name__ == '__main__':
 
     model.eval()
 
+    # ground truth
     if args.division == 'entire':
         ys = torch.tensor(testset.df.labels.values)
     elif args.division == 'base':
         ys = torch.tensor(testset.base_df.labels.values)
+        if args.mode == 'constrained':
+            ys = ys - torch.min(ys)
     if args.division == 'novel':
         ys = torch.tensor(testset.novel_df.labels.values)
-        ys = ys - torch.min(ys)
+        if args.mode == 'constrained':
+            ys = ys - torch.min(ys)
     preds = torch.tensor([])
     
     # evaluation iteration

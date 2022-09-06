@@ -1,4 +1,4 @@
-from model import PromptOptim
+from trainer import PromptOptim
 from config import cfg
 import argparse
 import torch
