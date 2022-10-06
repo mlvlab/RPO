@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from model import CoOp, CoCoOp, VisualCoCoOpv2, VisualCoCoOpv1, ZSCLIP, CoOpv2, VisualCoCoOpv3
+from model import CoOp, CoCoOp, VisualCoCoOpv2, VisualCoCoOpv1, ZSCLIP, CoOpv2, VisualCoCoOpv3, VisualCoCoOpv4
 from dataset import UnseenDataset
 from config import cfg
 
@@ -72,12 +72,13 @@ if __name__ == '__main__':
         else:
             cfg.train.visualreg = False
 
+    
     if (cfg.model.prefix is not None) & (not cfg.train.train_textprompt):
         if args.dataset == 'eurosat':
             cfg.model.prefix = 'a centered satellite photo of _'
         elif args.dataset == 'caltech101':
             cfg.model.prefix = 'a photo of a _'
-        elif args.dataset == 'oxfordpets':
+        elif args.dataset == 'oxfordpet':
             cfg.model.prefix = 'a photo of a _, a type of pet'
         elif args.dataset == 'stanfordcars':
             cfg.model.prefix = 'a photo of a _'
@@ -95,7 +96,32 @@ if __name__ == '__main__':
             cfg.model.prefix = '_ texture'
         elif args.dataset == 'ucf101':
             cfg.model.prefix = 'a photo of a person doing _'
-
+    
+    '''
+    if (cfg.model.prefix is not None) & (not cfg.train.train_textprompt):
+        if args.dataset == 'eurosat':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'caltech101':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'oxfordpet':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'stanfordcars':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'imagenet':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'flowers102':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'food101':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'fgvcaircraft':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'sun397':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'dtd':
+            cfg.model.prefix = 'a photo of a _'
+        elif args.dataset == 'ucf101':
+            cfg.model.prefix = 'a photo of a _'
+    '''
     # set device
     device = torch.device(args.device)
 
@@ -107,6 +133,7 @@ if __name__ == '__main__':
     elif args.division == 'novel':
         testset = UnseenDataset(args.dataset, args.kshot, 'test', cfg.train.base_label_ratio, test_time='novel')
     
+    print('Dataset defined')
     # set dataloader
     if args.type == 'cocoop':
         testloader = DataLoader(testset, batch_size=1)
@@ -129,6 +156,8 @@ if __name__ == '__main__':
                 model = VisualCoCoOpv2(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
             elif args.type == 'visualcocoopv3':
                 model = VisualCoCoOpv3(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv4':
+                model = VisualCoCoOpv4(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
             elif args.type == 'coopv2':
                 model = CoOpv2(testset.novel_labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
         
@@ -146,6 +175,8 @@ if __name__ == '__main__':
                 model = VisualCoCoOpv2(testset.base_labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
             elif args.type == 'visualcocoopv3':
                 model = VisualCoCoOpv3(testset.base_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv4':
+                model = VisualCoCoOpv4(testset.base_labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
             elif args.type == 'coopv2':
                 model = CoOpv2(testset.base_labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
 
@@ -163,6 +194,8 @@ if __name__ == '__main__':
                 model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix=cfg.model.prefix, mode='test')
             elif args.type == 'visualcocoopv3':
                 model = VisualCoCoOpv3(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+            elif args.type == 'visualcocoopv4':
+                model = VisualCoCoOpv4(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
             elif args.type == 'coopv2':
                 model = CoOpv2(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
     # generalized setting
@@ -179,14 +212,20 @@ if __name__ == '__main__':
             model = VisualCoCoOpv2(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
         elif args.type == 'visualcocoopv3':
                 model = VisualCoCoOpv3(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
+        elif args.type == 'visualcocoopv4':
+                model = VisualCoCoOpv4(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, mode='test')
         elif args.type == 'coopv2':
             model = CoOpv2(testset.labels, cfg, device, args.layer, prefix =cfg.model.prefix, inference=True, alpha=cfg.model.alpha)
 
     
     # load trained ckpt
     if args.type != 'zsclip':
-        state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/model_epoch{}_traintext{}_visualreg{}_seed{}.pt'.format(args.dataset, args.type, args.kshot, args.epoch, cfg.train.train_textprompt,  cfg.train.visualreg, args.seed),
+        if (args.dataset == 'imagenet_a') or (args.dataset == 'imagenet_sketch') or (args.dataset == 'imagenetv2') or (args.dataset == 'imagenet_r'):
+            state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/{}_model_epoch{}_traintext{}_visualreg{}_seed{}.pt'.format('imagenet', args.type, args.kshot, cfg.model.backbone.replace('/','-'), args.epoch, cfg.train.train_textprompt,  cfg.train.visualreg, args.seed),
                                 map_location=device)
+        else:
+            state_dict = torch.load('./ckpt/{}_promptlearn_{}/{}_shot/{}_model_epoch{}_traintext{}_visualreg{}_seed{}.pt'.format(args.dataset, args.type, args.kshot, cfg.model.backbone.replace('/','-'), args.epoch, cfg.train.train_textprompt,  cfg.train.visualreg, args.seed),
+                                    map_location=device)
         model.load_state_dict(state_dict())
 
     if device == torch.device('cpu'):
@@ -211,6 +250,8 @@ if __name__ == '__main__':
     # evaluation iteration
     with torch.no_grad():
         for step, pixel in enumerate(testloader):
+            #if (step+1)%50 == 0:
+            #    print('{} images done'.format(100*(step+1)))
             logits = model(pixel.type(torch.float32))
             logits = logits.to(torch.device('cpu'))
             pred = torch.topk(logits, k=args.topk, dim=1).indices

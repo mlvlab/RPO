@@ -1,15 +1,25 @@
 import os
 import pathlib
 import math
+import random
 import numpy as np
 import pandas as pd
 import sklearn
 import torch
 from sklearn.model_selection import train_test_split
 from torch.utils import data
+import torchvision
 import torchvision.transforms as T
 import PIL
+from PIL import Image
 import json
+
+try:
+    from torchvision.transforms import InterpolationMode
+    BICUBIC = InterpolationMode.BICUBIC
+except ImportError:
+    BICUBIC = Image.BICUBIC
+
 
 
 
@@ -28,12 +38,132 @@ class UnseenDataset(data.Dataset):
         self.train_time = train_time
         self.test_time = test_time
         self.device = device
-        # create img_dir, text label list
-        img_dir = []
-        labels = []
+
+        self.train_transform = T.Compose([
+                                     T.Resize((224,224),  interpolation=BICUBIC),
+                                     T.RandomHorizontalFlip(p=0.5),
+                                     T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711])
+                                    ])
+        self.test_transform = T.Compose([
+                                     T.Resize((224,224), interpolation=BICUBIC),
+                                     T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711])
+                                    ])
+        
+        if dataset == 'imagenet':
+
+            if self.mode == 'train':
+                root = '/hub_data1/imagenet/train/' 
+                img_dir, labels, name = [], [], []
+                # map label_id and label name
+                with open('/home/dongjun/VC_prompt_learning/data/imagenet/classnames.txt') as f:
+                    annot = f.readlines()
+                label_map = {}
+                for label in annot:
+                    label = label.replace('\n','')
+                    id, label_name = label[:9], label[10:]
+                    label_map[id] = label_name
+                # create dataframe
+                for idx, label_id in enumerate(os.listdir(root)):
+                    label_name = label_map[label_id]
+                    for img in os.listdir(os.path.join(root, label_id)):
+                        temp = os.path.join(root, label_id, img)
+                        img_dir.append(temp)
+                        labels.append(idx)
+                        name.append(label_name)
+                self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+                self.labels = list(map(lambda x: x[0], list(self.df.groupby('labels')['name'].unique())))
+            elif self.mode == 'test':
+                root = '/hub_data1/imagenet/val/' 
+                img_dir, labels, name = [], [], []
+                # map label_id and label name
+                with open('/home/dongjun/VC_prompt_learning/data/imagenet/classnames.txt') as f:
+                    annot = f.readlines()
+                label_map = {}
+                for label in annot:
+                    label = label.replace('\n','')
+                    id, label_name = label[:9], label[10:]
+                    label_map[id] = label_name
+                # create dataframe
+                for idx, label_id in enumerate(os.listdir(root)):
+                    label_name = label_map[label_id]
+                    for img in os.listdir(os.path.join(root, label_id)):
+                        temp = os.path.join(root, label_id, img)
+                        img_dir.append(temp)
+                        labels.append(idx)
+                        name.append(label_name)
+                self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+                self.labels = list(map(lambda x: x[0], list(self.df.groupby('labels')['name'].unique())))
+            else:
+                pass
+        
+        elif dataset == 'imagenet_sketch':
+            root = './data/imagenet_sketch/'
+            img_dir, labels, name = [], [], []
+            # map label_id and label name
+            with open('./data/imagenet/classnames.txt') as f:
+                annot = f.readlines()
+            label_map = {}
+            for label in annot:
+                label = label.replace('\n','')
+                id, label_name = label[:9], label[10:]
+                label_map[id] = label_name
+            # create dataframe
+            for idx, label_id in enumerate(os.listdir(root)):
+                label_name = label_map[label_id]
+                for img in os.listdir(os.path.join(root, label_id)):
+                    temp = os.path.join(root, label_id, img)
+                    img_dir.append(temp)
+                    labels.append(idx)
+                    name.append(label_name)
+            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+            self.labels = list(map(lambda x: x[0], list(self.df.groupby('labels')['name'].unique())))
+
+        elif dataset == 'imagenet_a':
+            root = './data/imagenet_a/'
+            img_dir, labels, name = [], [], []
+            # map label_id and label name
+            with open('./data/imagenet/classnames.txt') as f:
+                annot = f.readlines()
+            label_map = {}
+            for label in annot:
+                label = label.replace('\n','')
+                id, label_name = label[:9], label[10:]
+                label_map[id] = label_name
+            # create dataframe
+            for idx, label_id in enumerate(os.listdir(root)):
+                label_name = label_map[label_id]
+                for img in os.listdir(os.path.join(root, label_id)):
+                    temp = os.path.join(root, label_id, img)
+                    img_dir.append(temp)
+                    labels.append(idx)
+                    name.append(label_name)
+            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+            self.labels = list(map(lambda x: x[0], list(self.df.groupby('labels')['name'].unique())))
+
+        elif dataset == 'imagenet_r':
+            root = './data/imagenet_r/'
+            img_dir, labels, name = [], [], []
+            # map label_id and label ㅎ
+            with open('./data/imagenet/classnames.txt') as f:
+                annot = f.readlines()
+            label_map = {}
+            for label in annot:
+                label = label.replace('\n','')
+                id, label_name = label[:9], label[10:]
+                label_map[id] = label_name
+            # create dataframe
+            for idx, label_id in enumerate(os.listdir(root)):
+                label_name = label_map[label_id]
+                for img in os.listdir(os.path.join(root, label_id)):
+                    temp = os.path.join(root, label_id, img)
+                    img_dir.append(temp)
+                    labels.append(idx)
+                    name.append(label_name)
+            self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+            self.labels = list(map(lambda x: x[0], list(self.df.groupby('labels')['name'].unique())))
 
         # EuroSAT
-        if dataset == 'eurosat':
+        elif dataset == 'eurosat':
             img_path = './data/eurosat/'
             with open('./data/eurosat/split_zhou_EuroSAT.json') as f:
                 split = json.load(f)
@@ -99,6 +229,27 @@ class UnseenDataset(data.Dataset):
         elif dataset == 'food101':
             img_path = './data/food101/img'
             with open('./data/food101/split_zhou_Food101.json') as f:
+                split = json.load(f)
+
+            if self.mode == 'train':
+                train = map(lambda x: ["/".join([img_path, x[0]]), x[1], x[2]], split["train"])
+                self.df = pd.DataFrame(train, columns = ['img_dir', 'labels', 'name'])
+            elif self.mode == 'val':
+                val = map(lambda x: ["/".join([img_path, x[0]]), x[1], x[2]], split["val"])
+                self.df = pd.DataFrame(val, columns = ['img_dir', 'labels', 'name'])
+            else:
+                test = map(lambda x: ["/".join([img_path, x[0]]), x[1], x[2]], split["test"])
+                self.df = pd.DataFrame(test, columns = ['img_dir', 'labels', 'name'])
+            self.labels = []
+            labels = list(self.df.sort_values('labels').name)
+            for i in labels:
+                if i not in self.labels:
+                    self.labels.append(i)
+
+        # Food101
+        elif dataset == 'oxfordpet':
+            img_path = './data/oxfordpet/img'
+            with open('./data/oxfordpet/split_zhou_OxfordPets.json') as f:
                 split = json.load(f)
 
             if self.mode == 'train':
@@ -221,13 +372,15 @@ class UnseenDataset(data.Dataset):
             labels_idx = list(map(lambda x: self.labels.index(x), self.labels_li))
             self.df = pd.DataFrame({'img_dir':img_dir, 'labels':labels_idx})
                 
+                
         # subsampling
         if self.mode=='train':
-            self.df = self.df.groupby('labels').sample(n=self.k_shot, random_state=2022)
+            self.generate_few_shot_df()
+            print(self.df.shape[0])
+            #self.df = self.df.groupby('labels').sample(n=self.k_shot, random_state=2022)
         if self.mode == 'val':
             self.df = self.df.groupby('labels').sample(n=min(self.k_shot, 4), random_state=2022)
 
-        
         # divide base classes and novel classes
         self.divide()
         
@@ -235,31 +388,54 @@ class UnseenDataset(data.Dataset):
         if self.mode == 'train':
             if self.train_time == 'base':
                 self.base_df['image'] = self.base_df['img_dir'].map(self.dir_to_tensor)
-            else:
+            elif self.train_time == 'novel':
                 self.novel_df['image'] = self.novel_df['img_dir'].map(self.dir_to_tensor)
-
+            else:
+                self.df['image'] = self.df['img_dir'].map(self.dir_to_tensor)
+    
+    def generate_few_shot_df(self):
+        sampled_items = []
+        labels = []
+        names = []
+        for label, name in enumerate(self.labels):
+            items = list(self.df[self.df.name == name].img_dir.values)
+            sampled = random.sample(items, self.k_shot)
+            sampled_items += sampled
+            labels += [label] * self.k_shot
+            names += [name] * self.k_shot
+        self.df = pd.DataFrame({'img_dir':sampled_items, 'labels':labels, 'name':names})
 
     def dir_to_tensor(self, dir):
         img = PIL.Image.open(dir)
-        img = T.Resize((224,224))(T.ToTensor()(img))
+        img = T.ToTensor()(img)
+
         if img.shape[0] == 1:
             img = torch.cat([img, img, img], dim=0)
         elif img.shape[0] == 4:
             img = img[:3,:,:]
+
+        if self.mode == 'train':
+            img = self.train_transform(img)
+        else:
+            img = self.test_transform(img)
+
         img = img.to(self.device)
         return img
 
     def divide(self):
-        # assign base_label_ratio of class label as base classes
-        self.base_df = self.df[self.df.labels < (self.df.labels.max()+1)*self.base_label_ratio].copy()
-        label_idx = list(np.unique(self.base_df.labels.values))
-        self.base_labels = np.array(self.labels)[label_idx].tolist()
-        # self.base_df['labels'] -= self.base_df['labels'].min()
-        # assign rest as novel classes
-        self.novel_df = self.df[self.df.labels >= (self.df.labels.max()+1)*self.base_label_ratio].copy()
-        label_idx = list(np.unique(self.novel_df.labels.values))
-        self.novel_labels = np.array(self.labels)[label_idx].tolist()
-        # self.novel_df['labels'] -= self.novel_df['labels'].min()
+        # lowercase the label name
+        #self.labels = list(map(lambda x : x.lower(), self.labels))
+        #self.df.name = self.df.name.str.lower()
+        # sort the label name and relabeling
+        self.labels.sort()
+        n = len(self.labels)
+        m = math.ceil(n / 2)
+        self.base_labels = self.labels[:m]
+        self.novel_labels = self.labels[m:]
+        relabeler = {y:y_new for y_new, y in enumerate(self.labels)}
+        self.df['labels'] = self.df['name'].map(relabeler)
+        self.base_df = self.df[self.df.name.isin(self.base_labels)]
+        self.novel_df = self.df[self.df.name.isin(self.novel_labels)]
 
     def __len__(self):
         if self.mode == 'train':
@@ -278,9 +454,15 @@ class UnseenDataset(data.Dataset):
     def __getitem__(self, index):
         if self.mode == 'train':
             if self.train_time == 'entire':
-                return self.df.image.iloc[index], self.df.labels.iloc[index]
+                #dir = self.df.img_dir.iloc[index]
+                #img = self.dir_to_tensor(dir)
+                img = self.df.image.iloc[index]
+                return img, self.df.labels.iloc[index]
             elif self.train_time == 'base':
-                return self.base_df.image.iloc[index], self.base_df.labels.iloc[index]
+                #dir = self.base_df.img_dir.iloc[index]
+                #img = self.dir_to_tensor(dir)
+                img = self.base_df.image.iloc[index]
+                return img, self.base_df.labels.iloc[index]
         
         elif self.mode == 'test':
             if self.test_time == 'entire':
@@ -295,3 +477,99 @@ class UnseenDataset(data.Dataset):
                 dir = self.novel_df.img_dir.iloc[index]
                 img = self.dir_to_tensor(dir)
                 return img
+
+
+
+class CILImageNet100(data.Dataset):
+    def __init__(self, mode='train', cur_step=0, n_tasks=10, device=torch.device('cpu')):
+        super(CILImageNet100, self).__init__()
+        self.mode = mode
+        self.device = device
+        self.train_transform = T.Compose([
+                                     T.Resize((224,224),  interpolation=BICUBIC),
+                                     T.RandomHorizontalFlip(p=0.5),
+                                     T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711])
+                                    ])
+        self.test_transform = T.Compose([
+                                     T.Resize((224,224), interpolation=BICUBIC),
+                                     T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711])
+                                    ])
+
+        if self.mode == 'train':
+            root = '/hub_data1/imagenet100/train/' 
+            img_dir, labels, name = [], [], []
+            # map label_id and label name
+            with open('/home/dongjun/VC_prompt_learning/data/imagenet/classnames.txt') as f:
+                annot = f.readlines()
+            label_map = {}
+            for label in annot:
+                label = label.replace('\n','')
+                id, label_name = label[:9], label[10:]
+                label_map[id] = label_name
+            # create dataframe
+            for idx, label_id in enumerate(os.listdir(root)):
+                label_name = label_map[label_id]
+                for img in os.listdir(os.path.join(root, label_id)):
+                    temp = os.path.join(root, label_id, img)
+                    img_dir.append(temp)
+                    labels.append(idx)
+                    name.append(label_name)
+            df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+            self.labels = list(map(lambda x: x[0], list(df.groupby('labels')['name'].unique())))
+            self.n_cls = len(self.labels)
+            self.task_df = df[df.name.isin(self.labels[int(cur_step*(self.n_cls/n_tasks)):int((cur_step+1)*(self.n_cls/n_tasks))])]
+            self.task_df.labels = self.task_df.labels - self.task_df.labels.min()
+
+        elif self.mode == 'test':
+            root = '/hub_data1/imagenet100/val/' 
+            img_dir, labels, name = [], [], []
+            # map label_id and label name
+            with open('/home/dongjun/VC_prompt_learning/data/imagenet/classnames.txt') as f:
+                annot = f.readlines()
+            label_map = {}
+            for label in annot:
+                label = label.replace('\n','')
+                id, label_name = label[:9], label[10:]
+                label_map[id] = label_name
+            # create dataframe
+            for idx, label_id in enumerate(os.listdir(root)):
+                label_name = label_map[label_id]
+                for img in os.listdir(os.path.join(root, label_id)):
+                    temp = os.path.join(root, label_id, img)
+                    img_dir.append(temp)
+                    labels.append(idx)
+                    name.append(label_name)
+            df = pd.DataFrame({'img_dir':img_dir, 'labels':labels, 'name':name})
+            self.labels = list(map(lambda x: x[0], list(self.df.groupby('labels')['name'].unique())))
+            self.n_cls = len(self.labels)
+            self.task_df = df[df.name.isin(self.labels[int(cur_step*(self.n_cls/n_tasks)):int((cur_step+1)*(self.n_cls/n_tasks))])]
+            self.task_df.labels = self.task_df.labels - self.task_df.labels.min()
+        else:
+            pass
+
+    def dir_to_tensor(self, dir):
+        img = PIL.Image.open(dir)
+        img = T.ToTensor()(img)
+
+        if img.shape[0] == 1:
+            img = torch.cat([img, img, img], dim=0)
+        elif img.shape[0] == 4:
+            img = img[:3,:,:]
+
+        if self.mode == 'train':
+            img = self.train_transform(img)
+        else:
+            img = self.test_transform(img)
+
+        img = img.to(self.device)
+        return img
+
+    def __len__(self):
+        return len(self.task_df)
+    
+    def __getitem__(self, index):
+        dir = self.task_df.img_dir.iloc[index]
+        img = self.dir_to_tensor(dir)
+        return img, self.task_df.labels.iloc[index]
+        
+            
