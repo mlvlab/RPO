@@ -1,0 +1,3 @@
+DATASET:
+  NAME: "Caltech101"
+  PROMPT: "a photo of a _."

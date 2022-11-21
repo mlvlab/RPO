@@ -1,0 +1,3 @@
+DATASET:
+  NAME: "OxfordPets"
+  PROMPT: "a photo of a _."
