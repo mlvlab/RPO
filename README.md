@@ -22,6 +22,7 @@ The read only prompts read and transform essential information and context from 
 * RPO shows better base-to-new generalization and domain generalization performance compared to previous baselines.
 * RPO acheives better novel accuracy compared to zero-shot CLIP in base-to-new generalization
 * Performance of RPO shows smaller variance with respect to randomly sampled few-shot training data, compared to previous baselines. (Robust!)
+* RPO requires fewer parameters to train and lighter computational cost for inference, compared to previous baselines.
 
 If you are interested in more details of RPO, Please read our paper!
 
