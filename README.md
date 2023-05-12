@@ -8,14 +8,20 @@ through prompt learning in generalizable, robust, and parameter efficient manner
 
 ![image](https://github.com/dongdori/Read-only-Prompt-Optimization/assets/70640345/917f6a3b-1925-4128-8a94-a3f2c138649d)
 
-As shown in the figure above, We empirically observed that Linear probe shows stable performance variance with respect to 10 random few-shot training data sampling, compared to prompt learning approaches (e.g. CoOp and CoCoOp).
+As shown in the figure above, We empirically observed that CLIP adaptation based on linear probe shows more stable performance with respect to 10 random few-shot training data sampling, compared to prompt learning approaches (e.g. CoOp and CoCoOp).
 
-Although it was counterintuitive, We conjectured that preventing internal feature space of pretrained model from being affected by newly introduced prompts can be beneficial in terms of generalizability and robustness.
+Although it was counterintuitive, We conjectured that preventing internal feature space of pretrained model from being affected by newly introduced prompts can be beneficial in terms of generalizability and robustness after adaptation.
 
 ![image](https://github.com/dongdori/Read-only-Prompt-Optimization/assets/70640345/45d75ea2-441d-4243-8494-84e4b2118c42)
 
 Therefore, we propose **Read-only Attention Mechanism** to prevent internal distribution shift occured by learnable prompts.
-The **Read-only Attention Mechanism** can be simply implemented by attention masks for visual encoder and text encoder. The read only prompts read and transform essential information and context from the pre-trained feature space, at the same time do not affect to internal representation of pretrained model.
+The **Read-only Attention Mechanism** can be simply implemented by attention masks for visual encoder and text encoder.
+
+The read only prompts read and transform essential information and context from the pre-trained feature space, at the same time do not affect to internal representation of pretrained model.
+
+* RPO shows better base-to-new generalization and domain generalization performance compared to previous baselines.
+* RPO acheives better novel accuracy compared to zero-shot CLIP in base-to-new generalization
+* Performance of RPO shows smaller variance with respect to randomly sampled few-shot training data, compared to previous baselines. (Robust!)
 
 If you are interested in more details of RPO, Please read our paper!
 
