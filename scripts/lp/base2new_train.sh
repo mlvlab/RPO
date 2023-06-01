@@ -1,27 +1,26 @@
-#!/bin/bash
+
 
 # custom config
-DATA=/hub_data2/intern/data/
-TRAINER=CoCoOp
+DATA=/hub_data2/intern/data
+TRAINER=LP
 # TRAINER=CoOp
 
 DATASET=$1
 SEED=$2
 
 CFG=vit_b16_c4_ep10_batch1_ctxv1
-# CFG=vit_b16_ctxv1  # uncomment this when TRAINER=CoOp
+#CFG=vit_b16_ep50_ctxv1  # uncomment this when TRAINER=CoOp and DATASET=imagenet
 SHOTS=$3
-LOADEP=10
-SUB=$4
-GPU=$5
+GPU=$4
 
 
-COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
-MODEL_DIR=/hub_data2/intern/output/cocoop/base2new/train_base/${COMMON_DIR}
-DIR=/hub_data2/intern/output/cocoop/base2new/test_${SUB}/${COMMON_DIR}
+DIR=/hub_data2/intern/seokwon/output_dj/lp/base2new/train_base/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 #if [ -d "$DIR" ]; then
 #    echo "Oops! The results exist at ${DIR} (so skip this job)"
 #else
+
+echo $GPU
+
 CUDA_VISIBLE_DEVICES=${GPU} python train.py \
 --root ${DATA} \
 --seed ${SEED} \
@@ -29,9 +28,6 @@ CUDA_VISIBLE_DEVICES=${GPU} python train.py \
 --dataset-config-file configs/datasets/${DATASET}.yaml \
 --config-file configs/trainers/${TRAINER}/${CFG}.yaml \
 --output-dir ${DIR} \
---model-dir ${MODEL_DIR} \
---load-epoch ${LOADEP} \
---eval-only \
 DATASET.NUM_SHOTS ${SHOTS} \
-DATASET.SUBSAMPLE_CLASSES ${SUB}
+DATASET.SUBSAMPLE_CLASSES base
 #fi

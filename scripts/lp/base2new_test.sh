@@ -2,23 +2,22 @@
 
 # custom config
 DATA=/hub_data2/intern/data/
-TRAINER=CoCoOp
+TRAINER=LP
 # TRAINER=CoOp
 
 DATASET=$1
 SEED=$2
 
 CFG=vit_b16_c4_ep10_batch1_ctxv1
-# CFG=vit_b16_ctxv1  # uncomment this when TRAINER=CoOp
 SHOTS=$3
-LOADEP=10
+LOADEP=30
 SUB=$4
 GPU=$5
 
 
 COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
-MODEL_DIR=/hub_data2/intern/output/cocoop/base2new/train_base/${COMMON_DIR}
-DIR=/hub_data2/intern/output/cocoop/base2new/test_${SUB}/${COMMON_DIR}
+MODEL_DIR=/hub_data2/intern/seokwon/output_dj/lp/base2new/train_base/${COMMON_DIR}
+DIR=/hub_data2/intern/seokwon/output_dj/lp/base2new/test_${SUB}/${COMMON_DIR}
 #if [ -d "$DIR" ]; then
 #    echo "Oops! The results exist at ${DIR} (so skip this job)"
 #else

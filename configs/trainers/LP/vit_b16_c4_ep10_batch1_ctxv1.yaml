@@ -1,6 +1,6 @@
 DATALOADER:
   TRAIN_X:
-    BATCH_SIZE: 4
+    BATCH_SIZE: 32
   TEST:
     BATCH_SIZE: 100
   NUM_WORKERS: 8
@@ -14,22 +14,20 @@ INPUT:
 
 OPTIM:
   NAME: "sgd"
-  LR: 0.01
-  MAX_EPOCH: 15
+  LR: 0.0005
+  MAX_EPOCH: 30
   LR_SCHEDULER: "cosine"
   WARMUP_EPOCH: 1
   WARMUP_TYPE: "constant"
   WARMUP_CONS_LR: 1e-5
 
 TRAIN:
-  PRINT_FREQ: 20
+  PRINT_FREQ: 5
 
 MODEL:
   BACKBONE:
     NAME: "ViT-B/16"
 
 TRAINER:
-  RPO:
-    K: 2
-    CTX_INIT: "a photo of a"
-    PREC: "fp16"
+  LP:
+    PREC: "fp32"

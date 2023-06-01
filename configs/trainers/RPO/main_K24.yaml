@@ -3,7 +3,7 @@ DATALOADER:
     BATCH_SIZE: 4
   TEST:
     BATCH_SIZE: 100
-  NUM_WORKERS: 8
+  NUM_WORKERS: 16
 
 INPUT:
   SIZE: (224, 224)
@@ -30,6 +30,6 @@ MODEL:
 
 TRAINER:
   RPO:
-    K: 24 
+    K: 24
     CTX_INIT: "a photo of a"
     PREC: "fp16"

@@ -31,3 +31,4 @@ MODEL:
 TRAINER:
   COOP:
     CTX_INIT: "a photo of a"
+    CLASS_TOKEN_POSITION: "end"

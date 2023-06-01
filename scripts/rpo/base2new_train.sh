@@ -3,7 +3,7 @@
 #cd ../..
 
 # custom config
-DATA= #
+DATA= #../data
 TRAINER=RPO
 
 DATASET=$1
@@ -11,11 +11,9 @@ SEED=$2
 GPU=$3
 
 CFG=$4
-# CFG=vit_b16_ctxv1  # uncomment this when TRAINER=CoOp
-# CFG=vit_b16_ep50_ctxv1  # uncomment this when TRAINER=CoOp and DATASET=imagenet
 SHOTS=$5
 
-DIR=output/rpo/output/base2new/train_base/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
+DIR= #../output/rpo/base2new/train_base/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 #if [ -d "$DIR" ]; then
 #    echo "Oops! The results exist at ${DIR} (so skip this job)"
 #else

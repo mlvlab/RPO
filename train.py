@@ -27,6 +27,7 @@ import trainers.zsclip
 import trainers.coop
 import trainers.cocoop
 import trainers.rpo
+import trainers.linear_prob
 
 
 
@@ -106,6 +107,10 @@ def extend_cfg(cfg):
     cfg.TRAINER.COOP.CLASS_TOKEN_POSITION = ''
     cfg.TRAINER.COOP.PREC = 'fp16'
     cfg.TRAINER.COOP.CTX_INIT = ''
+    
+    cfg.TRAINER.LP = CN()
+    cfg.TRAINER.LP.PREC = 'fp16'
+    cfg.TRAINER.LP.PROMPT = 'A photo of a {cls_name}'
 
 
     cfg.DATASET.SUBSAMPLE_CLASSES = "all"  # all, base or new
