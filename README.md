@@ -34,26 +34,40 @@ If you are interested in more details of RPO, Please read our paper!
 ## How to Run?
 
 ### Main Results
-#### Base to new generalization
+#### Base to new generalization (16shot) on entire 11 datasets
 
 ```
-scripts/rpo/intra_task_generalization_main.sh [gpu_id]
+scripts/rpo/base2new_generalization_main.sh [gpu_id]
+
+# for individual dataset training & evaluation
+
+## training
+
+sh scripts/rpo/base2new_train.sh ${dataset} ${seed} ${GPU} ${cfg} ${SHOT}
+
+## evaluation
+sh scripts/rpo/base2new_test.sh ${dataset} ${seed} ${GPU} main_K24 ${SHOT} ${EPOCH} base
+sh scripts/rpo/base2new_test.sh ${dataset} ${seed} ${GPU} ${cfg} ${SHOT} ${EPOCH} new
 ```
 
-#### Domain generalization
+#### Domain generalization (16shot) on 5 benchmarks (ImageNet-Sketch, A, R, V2)
 ```
 scripts/rpo/domain_generalization_main.sh [gpu_id]
+
+# for individual dataset training & evaluation
+
+## training 
+sh scripts/rpo/xd_train.sh imagenet ${seed} ${GPU} imagenet_k24_ep15
+        
+## evaluation (on ImageNetV2, ImageNet-R, ImageNet-A, ImageNet-Sketch)
+sh scripts/rpo/xd_test.sh ${dataset} ${seed} ${EPOCH} ${GPU}
 ```
 
 ### Analyses
 
 #### Extreme Few-shot settings (1, 2, 4, 8 shot training & evaluation)
 ```
-scripts/rpo/extreme_base_to_new_generalization_main.sh [gpu_id]
+scripts/rpo/efs_base2new_generalization_main.sh [gpu_id]
 ```
 
-#### Robustness w.r.t few-shot training data random sampling
-```
-scripts/rpo/base_to_new_robustness_main.sh [gpu_id]
-```
 
