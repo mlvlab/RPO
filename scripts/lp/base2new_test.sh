@@ -1,9 +1,8 @@
 #!/bin/bash
 
 # custom config
-DATA=/hub_data2/intern/data/
+#DATA=/hub_data2/intern/data/
 TRAINER=LP
-# TRAINER=CoOp
 
 DATASET=$1
 SEED=$2
@@ -16,8 +15,8 @@ GPU=$5
 
 
 COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
-MODEL_DIR=/hub_data2/intern/seokwon/output_dj/lp/base2new/train_base/${COMMON_DIR}
-DIR=/hub_data2/intern/seokwon/output_dj/lp/base2new/test_${SUB}/${COMMON_DIR}
+MODEL_DIR=output/lp/base2new/train_base/${COMMON_DIR}
+DIR=output/lp/base2new/test_${SUB}/${COMMON_DIR}
 #if [ -d "$DIR" ]; then
 #    echo "Oops! The results exist at ${DIR} (so skip this job)"
 #else

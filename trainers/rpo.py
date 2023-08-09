@@ -83,7 +83,7 @@ class PromptLearner(nn.Module):
         self.img_prompt = nn.Parameter(visual_token)
         '''
         v_prompt_vec = torch.empty(self.K, self.d_v, dtype=self.dtype)
-        nn.init.normal_(v_prompt_vec, std=0.2)
+        nn.init.normal_(v_prompt_vec, std=0.02)
         self.img_prompt = nn.Parameter(v_prompt_vec, requires_grad=True)
         '''
     def forward(self):
@@ -151,7 +151,7 @@ class CustomCLIP(nn.Module):
         self.text_mask = text_mask
 
         # image encoder mask
-        att_size = 1 + 14 * 14 + self.cfg.TRAINER.RPO.K
+        att_size = 1 + 14 * 14 # + self.cfg.TRAINER.RPO.K
         visual_mask = torch.zeros((att_size, att_size), dtype=self.dtype, requires_grad=False)
         visual_mask[:, -1 * self.cfg.TRAINER.RPO.K:] = float("-inf")
         #####

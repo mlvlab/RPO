@@ -1,9 +1,8 @@
 
 
 # custom config
-DATA=/hub_data2/intern/data
+#DATA=/hub_data2/intern/data
 TRAINER=CoCoOp
-# TRAINER=CoOp
 
 DATASET=$1
 SEED=$2
@@ -15,7 +14,7 @@ SHOTS=$3
 GPU=$4
 
 
-DIR=/hub_data2/intern/output/cocoop/base2new/train_base/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
+DIR=output/cocoop/base2new/train_base/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 #if [ -d "$DIR" ]; then
 #    echo "Oops! The results exist at ${DIR} (so skip this job)"
 #else

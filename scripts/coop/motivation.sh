@@ -1,9 +1,9 @@
 GPU=$1
 SHOT=16
 
-for dataset in sun397
+for dataset in fgvc_aircraft
 do
-    for seed in 1 2 3
+    for seed in 1 2 3 4 5 6 7 8 9 10
     do
         # training
         sh scripts/coop/base2new_train.sh ${dataset} ${seed} ${SHOT} ${GPU}

@@ -3,7 +3,7 @@
 #cd ../..
 
 # custom config
-DATA= #../data
+#DATA=/hub_data2/intern/data/
 TRAINER=RPO
 
 DATASET=$1
@@ -18,8 +18,8 @@ SUB=$7
 
 
 COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
-MODEL_DIR= #../output/rpo/base2new/train_base/${COMMON_DIR}
-DIR= #../output/rpo/base2new/test_${SUB}/${COMMON_DIR}
+MODEL_DIR=output/rpo/base2new/train_base/${COMMON_DIR}
+DIR=output/rpo/base2new/test_${SUB}/${COMMON_DIR}
 
 #if [ -d "$DIR" ]; then
 #    echo "Oops! The results exist at ${DIR} (so skip this job)"

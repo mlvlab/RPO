@@ -1,9 +1,9 @@
 GPU=$1
 SHOT=16
 
-for dataset in eurosat dtd fgvc_aircraft oxford_flowers stanford_cars oxford_pets food101 sun397 ucf101 caltech101 imagenet
+for dataset in fgvc_aircraft
 do
-    for seed in 1 2 3
+    for seed in 1 2 3 4 5 6 7 8 9 10
     do
         # training
         sh scripts/lp/base2new_train.sh ${dataset} ${seed} ${SHOT} ${GPU}
