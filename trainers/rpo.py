@@ -151,7 +151,7 @@ class CustomCLIP(nn.Module):
         self.text_mask = text_mask
 
         # image encoder mask
-        att_size = 1 + 14 * 14 # + self.cfg.TRAINER.RPO.K
+        att_size = 1 + 14 * 14 + self.cfg.TRAINER.RPO.K
         visual_mask = torch.zeros((att_size, att_size), dtype=self.dtype, requires_grad=False)
         visual_mask[:, -1 * self.cfg.TRAINER.RPO.K:] = float("-inf")
         #####
