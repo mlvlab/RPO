@@ -14,7 +14,12 @@ This is the official implementation of the ICCV 2023 paper, "Read-only Prompt Op
 ### 2.1. Data path setup
 For every ```base2new_train.sh```, ```base2new_test.sh```, ```xd_train.sh```, and ```xd_test.sh```  file in ```scripts/*/``` directory, uncomment ```DATA=``` and insert the current data directory (e.g., ```DATA=data/```) in the field.
 
-### 2.2. Main Results
+
+### 2.2. Using Checkpoint
+If you want to check reproducibility of Table1 and Table2, without multiple times of time-consuming training,
+you may download rpo.zip file from this [link](https://drive.google.com/file/d/1LUEzIJ-_Nv7Le9NW8IIocYw_13uAzXq7/view?usp=share_link), unzip the file and place it under the ```output/``` directory.
+
+### 2.3. Run Experiments
 #### Table 1. Base to new generalization 
 
 ```
