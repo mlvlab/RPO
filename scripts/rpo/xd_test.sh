@@ -26,7 +26,7 @@ else
     --dataset-config-file configs/datasets/${DATASET}.yaml \
     --config-file configs/trainers/${TRAINER}/${CFG}.yaml \
     --output-dir ${DIR} \
-    --model-dir output/domain/imagenet/${TRAINER}/${CFG}_${SHOTS}shots/seed${SEED} \
+    --model-dir output/rpo/domain/imagenet/${TRAINER}/${CFG}_${SHOTS}shots/seed${SEED} \
     --load-epoch ${EPOCH} \
     --eval-only
 fi

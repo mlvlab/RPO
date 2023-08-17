@@ -1,8 +1,7 @@
 # Read-only-Prompt-Optimization for Vision-Language Few-shot Learning
 
 This is the official implementation of the ICCV 2023 paper, "Read-only Prompt Optimization for Vision-Language Few-shot Learning" by D. Lee, S. Song, J. Suh, J. Choi, S. Lee and H. J. Kim.
-
-## About the paper
+<img src="figures/figure.png" width="800" height="350">
 
 ## Setup
 1. install Dassl library following instruction from this [link](https://github.com/KaiyangZhou/Dassl.pytorch#installation) (For reproduction, cuda version 11.7 is expected.)
@@ -67,11 +66,6 @@ sh scripts/rpo/efs_base2new_generalization_main.sh [gpu_id]
 sh scripts/cocoop/efs_base2new_generalization_main.sh [gpu_id]
 ```
 
-## Contributors
-* Dongjun Lee
-* Seokwon Song
-
-
 ## Citation
 ```
 @inproceedings{lee2023rpo,
@@ -83,5 +77,5 @@ sh scripts/cocoop/efs_base2new_generalization_main.sh [gpu_id]
 ```
 
 ## License
-Licensed under MIT License
+Licensed under [MIT License](LICENSE)
 * Copyright (c) 2022 MLV Lab (Machine Learning and Vision Lab at Korea University)
