@@ -1,18 +1,20 @@
 # Read-only-Prompt-Optimization for Vision-Language Few-shot Learning
 
 This is the official implementation of the ICCV 2023 paper, "Read-only Prompt Optimization for Vision-Language Few-shot Learning" by D. Lee, S. Song, J. Suh, J. Choi, S. Lee and H. J. Kim.
+
+
 <img src="figures/figure.png" width="800" height="350">
 
-## Setup
+## 1. Setup & Installations
 1. install Dassl library following instruction from this [link](https://github.com/KaiyangZhou/Dassl.pytorch#installation) (For reproduction, cuda version 11.7 is expected.)
 2. Follow [DATASET.md](https://github.com/dongdori/Read-only-Prompt-Optimization/blob/main/DATASETS.md) to download datasets.
 
-## How to Run Experiments?
+## 2. How to Run Experiments?
 
-### Data path setup
+### 2.1. Data path setup
 For every ```base2new_train.sh```, ```base2new_test.sh```, ```xd_train.sh```, and ```xd_test.sh```  file in ```scripts/*/``` directory, uncomment ```DATA=``` and insert the current data directory (e.g., ```DATA=data/```) in the field.
 
-### Main Results
+### 2.2. Main Results
 #### Table 1. Base to new generalization 
 
 ```
